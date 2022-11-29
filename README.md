@@ -11,10 +11,10 @@ There are three different things that you can do with the given code:
 
 ## Pre-saved policies
 There are two types of policies that are shown here: the best policy we have solved so far and a suboptimal policy that exhibits a different set of behaviors. The following are the variables you can change and teh possible values: 
-a. coarse = 0 , 1 [0 for non-coarse, 1 for coarse]
-b. memories = 1, 2, 3, 4 
-c. threshold = 5, 12, 15 
-d. sub = 0 , 1 [0 gives the best and 1 gives the suboptimal] 
+1. coarse = 0 , 1 [0 for non-coarse, 1 for coarse]
+2. memories = 1, 2, 3, 4 
+3. threshold = 5, 12, 15 
+4. sub = 0 , 1 [0 gives the best and 1 gives the suboptimal] 
 
 The other variables are in the default_input.
 
