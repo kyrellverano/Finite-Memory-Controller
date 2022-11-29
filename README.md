@@ -2,7 +2,7 @@
 ## Algorithm
 ## Instructions
 You have two otpions: Notebooks or Python Scripts. The first step is to download the folder FSC_NB (Notebooks) or FSC_PS (Python Scripts), depending on your choice. For both modes, there are some preliminary steps. The implementation of the algorithm makes use of a fortran code for faster computations in some operations needed. Hence, one need to run the following in the command prompt in the folder where the notebook is run or where the python script will be run:
-
+(instructions on creating environment - conda or without conda)
 ## Tasks
 There are three different things that you can do with the given code:
 1. Optimize : run the algorithm to solve the optimized policy by natural gradient descent; the user needs to input all required variables and initializations
@@ -19,6 +19,6 @@ There are two types of policies that are shown here: the best policy we have sol
 The other variables are in the default_input.
 
 ## Notebooks
-The notebooks are easily prepared and the instructions for inputs are explained there. All outputs will be automatically saved on outputs/NB. 
+The notebooks are easily prepared and the instructions for inputs are explained there. There are three notebooks - depending on the task that is desired. All outputs will be automatically saved on outputs/NB.
 
 ## Python Scripts
