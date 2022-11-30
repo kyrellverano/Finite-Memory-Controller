@@ -26,4 +26,5 @@ Change the input variables in the file input.dat then run the python file that c
 1. python3 optimize.py input.dat
 2. python3 visualize.py input.dat
 3. python3 timedist.py input.dat
+
 The outputs (plots, .dat files, or videos) can be seen in the outputs folder.
