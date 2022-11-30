@@ -1,6 +1,7 @@
 # Finite-State-Controller
 ## Algorithm
 ## Instructions
+## Preliminary Steps
 You have two otpions: Notebooks or Python Scripts. The first step is to download the folder FSC_NB (Notebooks) or FSC_PS (Python Scripts), depending on your choice. For both modes, there are some preliminary steps. The implementation of the algorithm makes use of a fortran code for faster computations in some operations needed. Hence, one need to run the following in the command prompt in the folder where the notebook is run or where the python script will be run:
 (instructions on creating environment - conda or without conda)
 ## Tasks
