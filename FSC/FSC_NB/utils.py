@@ -2,7 +2,7 @@ import numpy as np
 from scipy.special import softmax as softmax
 from scipy import linalg
 import matplotlib.pyplot as plt
-import fast_sparce_multiplications_2D_efficient as fast_mult
+import fast_sparce_multiplications_2D as fast_mult
 import os
 
 
@@ -10,12 +10,9 @@ def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
     """
     Returns a diffusion plume with given parameters.
     """
-    
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
-
     xx, yy = np.meshgrid(spacex, spacey)
-    
     rr = np.sqrt(xx**2 + yy**2)
     lam = np.sqrt(D*tau/(1+V*V*tau/D/4))
     cplume = aR/(rr+0.01)*np.exp(-rr/lam-yy*V/2/D)
@@ -33,11 +30,12 @@ def create_random_Q0(Lx, Ly, Lx0, Ly0, gamma, a_size, M, cost_move, reward_find)
     rr = xx**2 + yy**2
     random_Q0 = (-1/(1-gamma)*cost_move) / (1 + 2/np.abs(rr)) + (1 - 1/ (1 + 2/np.abs(rr)))*reward_find    
     random_Q0 = np.tile(np.repeat(random_Q0, a_size), M).reshape(-1)
-    
     return random_Q0
 
 def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
-    
+    """
+    Returns a diffusion plume from a given data.
+    """
     Lx0 = int(Lx0)
     Ly0 = int(Ly0)
     
@@ -76,7 +74,7 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     return new_plume[::-1,:]
 
 
-def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Bernoulli", exp_plume=True):
+def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True):
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
 
@@ -90,8 +88,6 @@ def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax
         cplume = create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, cmax)
     # ------------------  
     cplume = cplume[:,:].reshape(-1)  
-    print(max_obs)
-    print(Lx*Ly)
     PObs = np.zeros((max_obs, Lx * Ly))
 
     if (plume_stat == "Poisson"):
@@ -186,8 +182,6 @@ def find_grad(pi, Q, eta, L, PObs_lim):
     Q_reshaped = np.reshape(Q, (L*M, a_size))
 
     # -------------
-    #
-    # eta is 
     etaobs = np.multiply(eta, PObs_lim)
 
     Q_eta = np.multiply( etaobs[:,:,np.newaxis] , Q_reshaped[np.newaxis,:,:] )
@@ -237,6 +231,7 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, A=4):
   m = 0
   s = np.random.choice(Lx*Ly, p=rho0[:Lx*Ly])
   x , y = (s%Lx, s//Lx)
+  
   done = False
   trj=np.zeros((1,5))
   r = 0
