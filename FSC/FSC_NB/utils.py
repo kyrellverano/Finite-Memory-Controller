@@ -2,7 +2,7 @@ import numpy as np
 from scipy.special import softmax as softmax
 from scipy import linalg
 import matplotlib.pyplot as plt
-import fast_sparce_multiplications_2D as fast_mult
+import fast_sparce_multiplications_2D_find_efficient as fast_mult
 import os
 
 
@@ -99,6 +99,7 @@ def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax
         PObs[0] = 1 - np.clip(cplume, 0, 1)
     else:
         print('Error in the statistics of plume!')
+        print('hello')
         
     PObs[-1,:] = 1 - np.sum(PObs[:-1,:], axis=0)
     PObs_2 = np.tile(PObs, (1,M))
