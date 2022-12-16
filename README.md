@@ -19,12 +19,10 @@ f2py -c fast_sparce_multiplications_2D.f90 -m fast_sparce_multiplications_2D
 ```
 After doing the installation/compilation above, you just need to activate the environment every time you use it again: `conda activate fmc` .
 ## Tasks
-There are three different things that you can do with the given code:
+There are two things that you can do with the given code/notebooks:
 1. Optimize : run the algorithm to solve the optimized policy by natural gradient descent; the user needs to input all required variables and initializations
 2. Visualize : look at some statistics and sample trajectory from saved policies: optimized policies pre-saved and optimized policies from (1) 
 
-
-  
 
 ## Pre-saved policies
 There are two types of policies that are shown here: the best policy we have solved so far and a suboptimal policy that exhibits a different set of behaviors. The following are the variables you can change and the possible values: 
