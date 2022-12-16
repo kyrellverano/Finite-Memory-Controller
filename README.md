@@ -12,13 +12,12 @@ conda install scipy=1.5.2
 conda install -c jmcmurray os
 conda install -c jmcmurray json
 conda install -c jmcmurray matplotlib
-```
-After installing then packages mentioned, make sure to always run `conda activate fmc` before using. 
+``` 
 Then, go to the directory where your codes are: `cd FSC_NB` or `cd FSC_PS` then compile the fortran script by running the following:
 ```
 f2py -c fast_sparce_multiplications_2D.f90 -m fast_sparce_multiplications_2D
 ```
-
+After doing the installation/compilation above, you just need to activate the environment every time you use it again: `conda activate fmc` .
 ## Tasks
 There are three different things that you can do with the given code:
 1. Optimize : run the algorithm to solve the optimized policy by natural gradient descent; the user needs to input all required variables and initializations
