@@ -17,7 +17,7 @@ if __name__ == "__main__":
     params = json.load(open(sys.argv[1]))
 
     coarse=params['coarse']   
-    p_th=params['thresh']
+    dth=params['thresh']
     M = params["M"]         # size of memory m = {0,1}
     A = params["A"]         # action available in list: {left, right, up, down} 
     
@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
     print('Lx :{}, Ly :{}'.format(Lx, Ly))
     print('Lx0:{}, Ly0:{}'.format(Lx0, Ly0))
-    print('M:{}, th:{}, replica:{}'.format(M, p_th,replica))
+    print('M:{}, th:{}, replica:{}'.format(M, dth,replica))
      
     # combined action space = M * A, lM0, lM1, ... rM0, rM1, ..., sM0, sM1, ...
     a_size = A * M
@@ -170,7 +170,7 @@ if __name__ == "__main__":
             value =  utils.get_value(Q, pi, PObs_lim, L, rho0)
             f.write('current value: {} @ time:{} \n'.format(value, t))
             f.flush()
-
+            print('current value: {} @ time:{} \n'.format(value, t))
             # check convergence
             if (abs((value-oldvalue)/value)<tol_conv):
                 f.write('converged at T={}'.format(t))
