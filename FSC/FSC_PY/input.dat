@@ -19,4 +19,5 @@
 "tol_Q" :   0.00000001,
 "tol_conv" : 0.000001,
 "new_policy" : 1,
-"second_best" : 0}
+"second_best" : 0,
+"sub" : 0}
