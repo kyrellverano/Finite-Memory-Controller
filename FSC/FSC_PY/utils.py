@@ -2,7 +2,7 @@ import numpy as np
 from scipy.special import softmax as softmax
 from scipy import linalg
 import matplotlib.pyplot as plt
-import fast_sparce_multiplications_2D_find_efficient as fast_mult
+import fast_sparce_multiplications_2D as fast_mult
 import os
 
 
