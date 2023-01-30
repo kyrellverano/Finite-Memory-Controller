@@ -262,7 +262,7 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, A=4):
       #print('Found!')
     if fixed_time and t == Tmax:
       done = True
-    if np.random.rand()<1-gamma:
-      done = True
+    #if np.random.rand()<1-gamma:
+      #done = True
     trj = np.append(trj, [[a,x,y,m,r]], axis=0)
   return trj, ret, t
