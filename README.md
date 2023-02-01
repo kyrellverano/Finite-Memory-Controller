@@ -31,7 +31,7 @@ There are two types of policies that are shown here: the best policy we have sol
 3. threshold = 5, 12, 15 
 4. sub = 0 , 1 [0 gives the best and 1 gives the suboptimal] 
 
-The other variables are in the default_input.
+The other variables are in the input.dat.
 
 ## Notebooks
 The notebooks are prepared for more convenient view of the outputs. There are two notebooks - depending on the task that is desired. 
