@@ -5,7 +5,7 @@ We frame a source-tracking problem as a gridworld where: a searcher (agent) navi
 ## Conda Environment
 You have two options: Notebooks or Python Scripts. The first step is to download the folder FSC_NB (Notebooks) or FSC_PS (Python Scripts), depending on your choice. For both modes, there are some preliminary steps to create an environment which have the required versions of packages. The implementation of the algorithm makes use of a fortran code which needs to be compiled. 
 ```
-conda create -n moths python=3.8.5
+conda create -n fmc python=3.8.5
 conda activate fmc
 conda install numpy=1.19.2
 conda install scipy=1.5.2
