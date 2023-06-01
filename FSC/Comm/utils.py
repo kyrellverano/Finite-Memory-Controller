@@ -1,10 +1,9 @@
 import numpy as np
 from scipy.special import softmax as softmax
-from scipy import linalg
+# from scipy import linalg
 import matplotlib.pyplot as plt
 import fast_sparce_multiplications_2D as fast_mult
-import os
-
+# import os
 
 def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
     """

@@ -2,8 +2,11 @@ import numpy as np
 import sys
 import json
 import os
-import utils
 from scipy.special import softmax as softmax
+
+sys.path.append('../Comm/')
+import utils as utils
+
 
 np.set_printoptions(precision=5)
 np.set_printoptions(suppress=True)
