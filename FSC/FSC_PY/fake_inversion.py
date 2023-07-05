@@ -1,4 +1,12 @@
+#-------------------------------------------------------------
 ### Fake inversion 
+#-------------------------------------------------------------
+# How to run:
+#
+#  $ python3 fake_inversion_sparse.py M
+#
+#      M = Multiplicative factor to increase the size of the system
+#-------------------------------------------------------------
 
 import numpy as np
 import itertools as it
@@ -9,17 +17,17 @@ import matplotlib.pyplot as plt
 from scipy.special import softmax
 
 import time
-
+#-------------------------------------------------------------
 print('Running fake inversion')
 print("modules loaded")
-
+#-------------------------------------------------------------
 torch_available = False
 try :
     import torch as torch
     dtype = torch.double
     print('Pytorch available')
     if torch.cuda.is_available():
-        device_torch = torch.device("cuda:1")
+        device_torch = torch.device("cuda:0")
         print('Device: GPU')
     else:
         device_torch = torch.device("cpu")
@@ -27,7 +35,7 @@ try :
     torch_available = True
 except ImportError:
     print('Pytorch not available')
-
+#-------------------------------------------------------------
 petsc4py_available = False
 try :
     import petsc4py
@@ -36,10 +44,14 @@ try :
     petsc4py_available = True
     print('Petsc4py available')
     OptDB = PETSc.Options()
-    PETSc.Options().setValue('cuda_device', '1 ')
+    PETSc.Options().setValue('cuda_device', '0')
+
+    mpi_rank = PETSc.COMM_WORLD.getRank()
+    mpi_size = PETSc.COMM_WORLD.getSize()
+
 except ImportError:
     print('Petsc4py not available')
-
+#-------------------------------------------------------------
 scipy_sparse_available = False
 try :
     import scipy.sparse as sparse
@@ -47,8 +59,22 @@ try :
     print('Scipy sparse available')
 except ImportError:
     print('Scipy sparse not available')
+#-------------------------------------------------------------
+cupy_scipy_available = False
+try : 
+    import cupy as cp
+    import cupyx.scipy.sparse as cusparse
+    import cupyx.scipy.sparse.linalg
+    cupy_scipy_available = True
+    print('Cupy sparse available')
+except ImportError:
+    print('Cupy sparse not available')
 
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 ## Utilities functions
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 
 clip = lambda x, l, u: l if x < l else u if x > u else x
 
@@ -205,7 +231,11 @@ def solution_test(eta,T,rho,gamma):
     # plt.show()
     return np.allclose(sol,rho)
 
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 ## Functions to the $\eta$ with different libraries
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 
 def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,device='gpu'):
     """
@@ -217,48 +247,34 @@ def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,dev
     else:
         mat_type = PETSc.Mat.Type.AIJ
 
-    # Get non-zero indices from Tsm_sm_matrix per row 
-    non_zeros_in_row = [np.nonzero(Tsm_sm_matrix[i,:])[0] for i in range(Tsm_sm_matrix.shape[0])]
-    count_non_zeros_in_row = np.array([len(non_zeros_in_row[i]) for i in range(len(non_zeros_in_row))],dtype=np.int32)
-
-    # print('Number of non-zero elements per row: ', np.sum(count_non_zeros_in_row))
+    mpi_rank = PETSc.COMM_WORLD.getRank()
+    mpi_size = PETSc.COMM_WORLD.getSize()
 
     mat_size = M*Lx*Ly
+
+    # Get the maximum number of non zeros values per row for Tsm_sm
+    count_non_zeros_in_row = np.ones(mat_size,dtype=np.int32) * 4 * M
+    count_non_zeros_in_row[0] -= M
+    count_non_zeros_in_row[-1] -= M
 
     # Create PETSc matrix
     A = PETSc.Mat()
     A.create(comm=PETSc.COMM_WORLD)
 
-    mpi_rank = PETSc.COMM_WORLD.getRank()
-    mpi_size = PETSc.COMM_WORLD.getSize()
-    comm = PETSc.COMM_WORLD
-
     A.setSizes( (mat_size , mat_size) )
     A.setType(mat_type)
     A.setPreallocationNNZ(count_non_zeros_in_row[mpi_rank*mat_size//mpi_size:(mpi_rank+1)*mat_size//mpi_size])
     # A.createAIJ([mat_size,mat_size], nnz=count_non_zeros_in_row)
-    # 
+
+
     # Fill PETSc matrix
     non_zeros_Tsm = np.transpose(np.nonzero(Tsm_sm_matrix))
     # print("non_zeros_Tsm.shape: ", non_zeros_Tsm.shape)
     for index in non_zeros_Tsm:
         A.setValues(index[0],index[1],Tsm_sm_matrix[index[0],index[1]])
     
-    # def index_to_grid(r):
-    #     """Convert a row number into a grid point."""
-    #     return (r // mat_size, r % mat_size)
-
-
-    # rstart, rend = A.getOwnershipRange()
-    # for index in non_zeros_Tsm:
-    #     if rstart <= index[0] <= rend:
-    #         A.setValues(index[0],index[1],Tsm_sm_matrix[index[0],index[1]])
-
     A.assemblyBegin()
     A.assemblyEnd()
-
-
-    # print("Lllogo aqui")
 
     # eye matrix with PETSc
     ones = PETSc.Mat()
@@ -294,16 +310,10 @@ def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,dev
     ksp.getPC().setType(ps_type)
     ksp.setTolerances(rtol=1e-10)
 
-    # ksp.setConvergenceHistory()
     ksp.setFromOptions()
-    # ksp.setInitialGuessNonzero(True)
 
     ksp.setUp()
     ksp.solve(b, x)
-
-    # residuals = ksp.getConvergenceHistory()
-    # plt.semilogy(residuals)
-    # plt.show()
 
     A.destroy()
     ones.destroy()
@@ -319,8 +329,7 @@ def eta_numpy(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
     """
     Invert a matrix using numpy
     """
-
-
+    
     Tsm_sm_matrix_local = Tsm_sm_matrix.copy()
 
     np.multiply(Tsm_sm_matrix_local,-gamma,out=Tsm_sm_matrix_local)
@@ -366,7 +375,7 @@ def eta_torch(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
     if device == 'cpu':
         device_torch = torch.device('cpu')
     else:
-        device_torch = torch.device('cuda:1')
+        device_torch = torch.device('cuda:0')
 
     try :
         Tsm_sm_matrix_local = Tsm_sm_matrix.copy()
@@ -390,8 +399,9 @@ def eta_torch(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
             rho0_torch = None
             inverted = None
             torch.cuda.empty_cache()
-    except:
+    except Exception as error:
         print("Error inverting matrix with torch")
+        print(error)
         Tsm_sm_matrix_torch = None
         rho0_torch = None
         inverted = None
@@ -407,7 +417,7 @@ def eta_torch_sol(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
     if device == 'cpu':
         device_torch = torch.device('cpu')
     else:
-        device_torch = torch.device('cuda:1')
+        device_torch = torch.device('cuda:0')
     try :
         Tsm_sm_matrix_local = Tsm_sm_matrix.copy()
 
@@ -428,8 +438,9 @@ def eta_torch_sol(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
             Tsm_sm_matrix_torch = None
             rho0_torch = None
             torch.cuda.empty_cache()
-    except:
+    except Exception as error:
         print("Error inverting matrix with torch")
+        print(error)
         Tsm_sm_matrix_torch = None
         rho0_torch = None
         torch.cuda.empty_cache()
@@ -454,8 +465,23 @@ def eta_scipy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device
 
     return new_eta
 
+def eta_cupy_sparse_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
+    """
+    Solve linear system using cupy sparse
+    """
+    rho0_cupy = cp.asarray(rho0)
+    Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
+    to_invert = cusparse.eye(M*Ly*Lx) - gamma * Tsm_sm_matrix_cupy
+    new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
+    new_eta = cp.asnumpy(new_eta_cupy)
 
+    return new_eta
+
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 ## Solve the problem
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 
 def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=eta_numpy, verbose=False, device='cpu'):
     """
@@ -480,7 +506,7 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
     #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
     
     need_sparse = False
-    if func_eta == eta_scipy_sparce_solve or func_eta == eta_petsc:
+    if func_eta == eta_scipy_sparce_solve or func_eta == eta_petsc or func_eta == eta_cupy_sparse_solve:
         need_sparse = True
     # Tsm_sm has size ~ 10^5 x 10^5 or more
     if need_sparse:
@@ -535,7 +561,11 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
     
     return new_eta, Tsm_sm_matrix
 
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 ## TEST
+#-------------------------------------------------------------
+#-------------------------------------------------------------
 
 if __name__ == "__main__":
 
@@ -550,6 +580,19 @@ if __name__ == "__main__":
     print("-"*50)
     print("System parameters:")
     print("M:",M,"   O:",O,"   Lx:",Lx,"   Ly:",Ly,"   # actions:",a_size,"   dim_factor:",dim_factor)
+
+    ## Benchmarking of the solvers
+    solvers_methods = [
+        ["Numpy",       'cpu',eta_numpy              ],
+        ["Numpy Sol",   'cpu',eta_numpy_sol          ],
+        ["Torch CPU",   'cpu',eta_torch              ],
+        ["Torch SolCPU",'cpu',eta_torch_sol          ],
+        ["Torch",       'gpu',eta_torch              ],
+        ["Torch Sol",   'gpu',eta_torch_sol          ],
+        ["Scipy Sparse",'cpu',eta_scipy_sparce_solve ],
+        ["Cupy Sparse", 'gpu',eta_cupy_sparse_solve  ],
+        # ["Petsc GPU",   'gpu',eta_petsc              ],
+        ["Petsc CPU",   'cpu',eta_petsc              ]]
 
     # np.random.seed(33+33)
 
@@ -572,14 +615,9 @@ if __name__ == "__main__":
 
     T = None
 
-    ## Benchmarking of the solvers
-
-    # solvers = [ eta_numpy,eta_numpy_sol,eta_torch,eta_torch_sol, eta_torch, eta_torch_sol,eta_scipy_sparce_solve, eta_petsc,eta_petsc]
-    # name_solvers =    ["Numpy", "Numpy Sol", "Torch CPU", "Torch SolCPU", "Torch", "Torch Sol", "Scipy", "Petsc GPU", "Petsc CPU"]
-    # device_selector = [  'cpu',       'cpu',       'cpu',          'cpu',   'gpu',       'gpu',   'cpu',       'gpu',       'cpu']
-    solvers = [eta_scipy_sparce_solve,eta_petsc]
-    name_solvers =    ["Scipy", "Petsc CPU"]
-    device_selector = [  'cpu',       'cpu']
+    name_solvers = [x[0] for x in solvers_methods]
+    device_selector = [x[1] for x in solvers_methods]
+    solvers = [x[2] for x in solvers_methods]    
 
     # print("-"*50)
     # print("Details of the solvers:")
@@ -587,7 +625,6 @@ if __name__ == "__main__":
     # for solver, name_solver, device_sel in zip(solvers, name_solvers,device_selector):
     #     print("Method: {:>12}".format(name_solver), end=" ")
     #     inv_sol, T = solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=solver, verbose=True,device=device_sel)
-
 
     print("-"*50)
     print("Benchmarking of the solvers")
