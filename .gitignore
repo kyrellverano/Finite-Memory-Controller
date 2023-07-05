@@ -1,3 +1,7 @@
+# Custum ignore
+*.dat
+*.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
