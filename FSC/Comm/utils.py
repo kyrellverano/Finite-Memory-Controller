@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 import fast_sparce_multiplications_2D as fast_mult
 # import os
 
+# Linear solvers
+from local_linear_solvers import *
+
+
 def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
     """
     Returns a diffusion plume with given parameters.
@@ -175,61 +179,64 @@ def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_r
     print('NOT CONVERGED - Q')
     return new_Q
 
-# def lineal_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, find_range,func_eta=eta_numpy, verbose=False):
-#     """
-#     This function should solve the following:
-#     --> New_eta = (1 - gamma T)^-1 rho
-#     """
-#     O, M, A = pi.shape
-#     L = Lx * Ly
-#     new_eta = np.zeros(M*L)
-    
-#     # PY has size ~ 10^5
-#     PY = PObs_lim.reshape(O, M, Ly, Lx)
-#     # PY has size ~ 10^2
-#     PAMU = pi.reshape(O, M, M, A//M)
-    
-#     p_a_mu_m_xy = np.einsum( 'omyx, omna -> anmyx', PY, PAMU)
-#     # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
-#     #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
-    
-#     # Tsm_sm has size ~ 10^5 x 10^5 or more
-#     Tsm_sm = np.zeros( (M, Ly, Lx, M, Ly, Lx) )
+def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=eta_scipy_sparce_solve, verbose=False, device='cpu'):
+    """
+    This function should solve the following:
+    --> New_eta = (1 - gamma T)^-1 rho
+    """
 
-#     if verbose:
-#         print("pi shape:",pi.shape)
-#         print("new_eta shape:",new_eta.shape)
-#         print("PY shape:",PY.shape, "PAMU shape:",PAMU.shape)
-#         print("p_a_mu_m_xy shape:",p_a_mu_m_xy.shape)
-#         print("Tsm_sm shape:",Tsm_sm.shape,"size:",Tsm_sm.size)
+    if func_eta is eta_petsc : 
+        comm = PETSc.COMM_WORLD.tompi4py()
+        mpi_rank = PETSc.COMM_WORLD.getRank()
+        mpi_size = PETSc.COMM_WORLD.getSize()
+
+    # O = Observations, M = Memory, A = Actions
+    O, M, A = pi.shape
+    # L = Dimension of the environment
+    L = Lx * Ly
+    new_eta = np.zeros(M*L)
     
-#     #  Populated of Tsm_sm
-#     Tsm_sm = populate_Tsm_sm(M,Lx,Ly,p_a_mu_m_xy,Tsm_sm)
+    # PY has size ~ 10^5
+    PY = PObs_lim.reshape(O, M, Ly, Lx)
+    # PY has size ~ 10^2
+    PAMU = pi.reshape(O, M, M, A//M)
     
-#     yxs = it.product(np.arange(Ly), np.arange(Lx))
-#     yx_founds = it.filterfalse(lambda x: (x[0]-Ly0)**2 + (x[1]-Lx0)**2 > find_range**2, yxs)
+    p_a_mu_m_xy = np.einsum( 'omyx, omna -> anmyx', PY, PAMU)
+    # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
+    #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
+
+    # Tsm_sm has size ~ 10^5 x 10^5 or more
+    # if mpi_rank == 0:
+    #     Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,A//M,p_a_mu_m_xy)
+    # else:
+    #     Tsm_sm_matrix = None
     
-#     All = slice(None)
-#     for yx_found in yx_founds:
-#         # print("yx_found:",yx_found)
-#         # all transitions starting from the source do not go anywhere
-#         ls = (All, yx_found[0], yx_found[1], All, All, All)
-#         Tsm_sm[ls] = 0
-#         # all transitions ending in the source stop the episode
-#         ls = (All, All, All, All, yx_found[0], yx_found[1])
-#         Tsm_sm[ls] = 0
-    
-#     Tsm_sm_matrix = np.reshape(Tsm_sm, (M*Ly*Lx, M*Ly*Lx))
-    
-#     if verbose:
-#         print("number of non-zeros in Tsm_sm_matrix:",np.count_nonzero(Tsm_sm_matrix != 0))
-#         print("number of     zeros in Tsm_sm_matrix:",np.count_nonzero(Tsm_sm_matrix == 0))
-#         plt.imshow(Tsm_sm_matrix)
-#         plt.show()
+    # Tsm_sm_matrix = comm.bcast(Tsm_sm_matrix, root=0)
+
+    Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,A//M,p_a_mu_m_xy)
+
+    if verbose and mpi_rank == 0:
+        print("-"*50)
+        print("Solver info:")
+        print("pi shape:",pi.shape)
+        print("new_eta shape:",new_eta.shape)
+        print("PY shape:",PY.shape, "PAMU shape:",PAMU.shape)
+        print("p_a_mu_m_xy shape:",p_a_mu_m_xy.shape)
         
-#     new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0)
-    
-#     return new_eta, Tsm_sm_matrix
+        print("               Type of Tsm_sm_matrix:",type(Tsm_sm_matrix))
+        print("                 Tsm_sm_matrix shape:",Tsm_sm_matrix.shape)
+        print("number of non-zeros in Tsm_sm_matrix:",Tsm_sm_matrix.nnz)
+        print("number of     zeros in Tsm_sm_matrix:",M*Lx*Ly*M*Lx*Ly - Tsm_sm_matrix.nnz)
+        print("               opacity of the matrix: {:7.4f}".format(Tsm_sm_matrix.nnz/(M*Lx*Ly*M*Lx*Ly) * 100.0), "%")
+        print("           Sparse matrix memory size:", Tsm_sm_matrix.data.nbytes/1e6, " MB")
+        print("-"*50)
+
+    if func_eta == eta_petsc:
+        new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,'bcgs','jacobi',device=device)
+    else :
+        new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=device)
+
+    return new_eta  
 
 
 def find_grad(pi, Q, eta, L, PObs_lim):

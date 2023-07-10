@@ -13,11 +13,13 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=1000)
 
 
-if __name__ == "__main__":
+# @profile
+def optimize():
     
     # parameters for system are loaded from file 
     print(sys.argv)
-    params = json.load(open(sys.argv[1]))
+    # params = json.load(open(sys.argv[1]))
+    params = json.load(open('input.dat'))
 
     coarse=params['coarse']   
     dth=params['thresh']
@@ -147,16 +149,20 @@ if __name__ == "__main__":
     value = 0
     oldvalue = value
     
-    
     #++++++++
     #OPTIMIZATION ALGORITHM: NPG
     for t in range(Ntot):
 
         pi = softmax(th, axis=2)
 
+        # Direct linear system solution
+        eta_linear = utils.linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range)
+
         # Iterative solutions of linear system
-        eta = utils.iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta, tol_eta, Lx, Ly, Lx0, Ly0, find_range)
+        # eta_ite = utils.iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta, tol_eta, Lx, Ly, Lx0, Ly0, find_range)
         Q = utils.iterative_solve_Q(pi, PObs_lim, gamma, RR, Q, tol_Q, Lx, Ly, Lx0, Ly0, find_range, cost_move)
+
+        eta = eta_linear
         
         # Gradient calculation
         grad = utils.find_grad(pi, Q, eta, L, PObs_lim)
@@ -199,3 +205,6 @@ if __name__ == "__main__":
     else:
         print('did not converged for {} runs and tolerance {}'.format(Ntot,))
         print('current value: {} @ time:{} \n'.format(value, t))
+
+if __name__ == "__main__":
+    optimize()
