@@ -162,7 +162,7 @@ def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, 
 
 
 def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_range, cost_move):
-    max_it = 100
+    max_it = 10000
     Q = Q0
     O, M, A = pi.shape
     L = Q.shape[0] // (M*A)
