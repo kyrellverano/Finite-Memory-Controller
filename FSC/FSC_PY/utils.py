@@ -2,7 +2,7 @@ import numpy as np
 from scipy.special import softmax as softmax
 from scipy import linalg
 import matplotlib.pyplot as plt
-import fast_sparce_multiplications_2D as fast_mult
+import fast_sparce_multiplications_2D_find_efficient as fast_mult
 import os
 
 
@@ -40,8 +40,14 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     Ly0 = int(Ly0)
     
     exp_plume_mat = data.copy()
-    center_x = np.argmax(exp_plume_mat[:,0])
-
+    plt.imshow(exp_plume_mat)
+    plt.show()
+    
+    center_x, center_y = np.unravel_index(np.argmax(exp_plume_mat, axis=None), exp_plume_mat.shape)
+    
+    
+    print(f"exp_plume_mat.shape {exp_plume_mat.shape}")
+    
     # symmetrize exp_plume_mat
     min_size = min(center_x, exp_plume_mat.shape[0]-center_x)
     exp_plume_mat = exp_plume_mat[center_x - min_size:center_x + min_size,:].copy()
@@ -50,17 +56,23 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     new_size_x = Lx
     new_size_y = Ly
     
+    print(f"exp_plume_mat.shape {exp_plume_mat.shape}")
     exp_Lx, exp_Ly = exp_plume_mat.shape 
     
     assert Ly0+10 <= exp_Ly, 'Size of experimental plume too small' 
     
+    print(f"Lx{Lx} Ly{Ly} expLx{exp_Lx} expLy{exp_Ly}")
+    print(f"center_x{center_x} min_size{min_size}")
+    
     new_plume = np.zeros((new_size_x, new_size_y))
     
     if Lx0 < min(exp_Lx-center_x, center_x):
+        print('yes')
         momo = exp_plume_mat[center_x-(Lx0):center_x+(new_size_x-Lx0),
                      :Ly0+10].copy()
         
     else:
+        print('no')
         momo = np.zeros((new_size_x, Ly0+10))
         momo[Lx0-center_x:Lx0-center_x+exp_Lx,:] = exp_plume_mat[:,:Ly0+10].copy()
     
@@ -74,7 +86,7 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     return new_plume[::-1,:]
 
 
-def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True):
+def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, plume_stat, D=50, tau=2000, exp_plume=True):
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
 
@@ -150,7 +162,7 @@ def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, 
 
 
 def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_range, cost_move):
-    max_it = 10000
+    max_it = 100
     Q = Q0
     O, M, A = pi.shape
     L = Q.shape[0] // (M*A)
@@ -167,6 +179,7 @@ def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_r
             new_Q = RR + gamma * fast_mult.mult_q_five_2d(pi, Q, PObs_lim, Lx0+1, Ly0+1, find_range, Lx, Ly, O, M)
         if (i%1 == 0):
             delta = (new_Q-Q)
+            #delta = np.sum(delta*delta)
             delta = np.max(delta*delta)
             if ( delta < tol2): 
                 return new_Q
@@ -262,7 +275,8 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, A=4):
       #print('Found!')
     if fixed_time and t == Tmax:
       done = True
+      #print('not found')
     #if np.random.rand()<1-gamma:
-      #done = True
+    #  done = True
     trj = np.append(trj, [[a,x,y,m,r]], axis=0)
   return trj, ret, t
