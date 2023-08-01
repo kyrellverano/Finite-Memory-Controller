@@ -47,3 +47,5 @@ The outputs (plots, .dat files, or videos) can be seen in the outputs folder.
 
 ## Dynamic Plumes
 An additional feature is to be able to evaluate policies given a dynamic environment: for the detecton of signals, instead of using a probabilistic model derived from time-averaged snapshots of the plume, here we use the snapshots of the plume at each time [searcher receive a signal if concentration>threshold].
+
+For this feature, one can download the folder FSC_dynamic_eval and then add the contents of this to the original/home folder, with all the other requisite codes and data already in there. 
