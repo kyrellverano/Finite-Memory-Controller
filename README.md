@@ -15,7 +15,7 @@ conda install -c jmcmurray os
 conda install -c jmcmurray json
 conda install -c jmcmurray matplotlib
 ``` 
-Then, go to the directory where your codes are: `cd FSC_NB` or `cd FSC_PS` then compile the fortran script by running the following:
+Then, go to the directory where your codes are: `cd FSC_NB` or `cd FSC_PY` then compile the fortran script by running the following:
 ```
 f2py -c fast_sparce_multiplications_2D.f90 -m fast_sparce_multiplications_2D
 ```
@@ -50,4 +50,4 @@ An additional feature is to be able to evaluate policies given a dynamic environ
 
 For this feature, one can download the folder FSC_eval_dataprocess and then add the contents of this to the original/home folder, with all the other requisite codes and data already in there. 
 
-Note: to be able to use the `ProcessFramesFromRawData.ipynb`, one has to use .mat as source files. You can also use data from videos, extracting them first to get the .mat file which contains all pixel values in each frames. 
+Note: to be able to use the `ProcessFramesFromRawData.ipynb` , one has to use .mat as source files. You can also use data from videos, extracting them first to get the .mat file which contains all pixel values in each frames. 
