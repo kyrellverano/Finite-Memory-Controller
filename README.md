@@ -45,7 +45,9 @@ Change the input variables in the file input.dat then run the python file that c
 
 The outputs (plots, .dat files, or videos) can be seen in the outputs folder.
 
-## Dynamic Plumes
+## Evaluation on Dynamic Plumes and Data Processing 
 An additional feature is to be able to evaluate policies given a dynamic environment: for the detecton of signals, instead of using a probabilistic model derived from time-averaged snapshots of the plume, here we use the snapshots of the plume at each time [searcher receive a signal if concentration>threshold].
 
-For this feature, one can download the folder FSC_dynamic_eval and then add the contents of this to the original/home folder, with all the other requisite codes and data already in there. 
+For this feature, one can download the folder FSC_eval_dataprocess and then add the contents of this to the original/home folder, with all the other requisite codes and data already in there. 
+
+Note: to be able to use the `ProcessFramesFromRawData.ipynb`, one has to use .mat as source files. You can also use data from videos, extracting them first to get the .mat file which contains all pixel values in each frames. 
