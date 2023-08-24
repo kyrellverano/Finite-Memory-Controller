@@ -311,10 +311,12 @@ enddo
 do i=-find_range_int, find_range_int
     do j = -find_range_int, find_range_int
     
-        if ( (i)**2 + (j)**2  < find_range2 ) then
- 
+        ! if ( (i)**2 + (j)**2  < find_range2 ) then
+        if ( (i+int(Lx0)-Lx0)**2 + (j+int(Ly0)-Ly0)**2  < find_range2 ) then
+
             do ia = 1, A
-                s = ((j+Ly0-1)*Lx + (i+Lx0) - 1)*A + ia
+                ! s = ((j+Ly0-1)*Lx + (i+Lx0) - 1)*A + ia
+                s = (((j+int(Ly0)-1)*Lx + (i+int(Lx0)) - 1)*A + ia)
                 do k = 1, M
                     ALkm1 = A*L*(k-1)
                     newQ(s+ALkm1) = 0.d0
@@ -484,10 +486,12 @@ enddo
 do i=-find_range_int, find_range_int
     do j = -find_range_int, find_range_int
     
-        if ( (i)**2 + (j)**2  < find_range2 ) then
- 
+        ! if ( (i)**2 + (j)**2  < find_range2 ) then
+        if ( (i+int(Lx0)-Lx0)**2 + (j+int(Ly0)-Ly0)**2  < find_range2 ) then
+
             do ia = 1, A
-                s = ((j+Ly0-1)*Lx + (i+Lx0) - 1)*A + ia
+                ! s = ((j+Ly0-1)*Lx + (i+Lx0) - 1)*A + ia
+                s = (((j+nint(Ly0)-1)*Lx + (i+nint(Lx0)) - 1)*A + ia)
                 do k = 1, M
                     ALkm1 = A*L*(k-1)
                     newQ(s+ALkm1) = 0.d0
