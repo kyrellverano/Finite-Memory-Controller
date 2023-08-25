@@ -1,6 +1,8 @@
 # Custum ignore
 *.dat
 *.txt
+FSC/FSC_NB/outputs/*
+FSC/FSC_PY/ExpPlume*/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
