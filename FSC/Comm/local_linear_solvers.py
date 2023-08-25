@@ -4,7 +4,6 @@ import scipy.sparse as sparse
 
 import numba
 
-@numba.njit 
 def index_six_to_two(index,M,Ly,Lx):
     # Convert the index of an array of 6 dim to 2 dim
     # new_index_x = index[0] * Lx * Ly + index[1] * Lx + index[2]
@@ -14,6 +13,16 @@ def index_six_to_two(index,M,Ly,Lx):
     new_index_y = Lx * ( index[3] * Ly + index[4] ) + index[5]
 
     return (new_index_x,new_index_y)
+
+def index_six_to_two_2(index,M,Ly,Lx):
+    # Convert the index of an array of 6 dim to 2 dim
+    # new_index_x = index[0] * Lx * Ly + index[1] * Lx + index[2]
+    # new_index_y = index[3] * Lx * Ly + index[4] * Lx + index[5]
+    # increse the performance of the new_index_x and new_index_y
+    new_index_x = Lx * ( index[0] * Ly + index[1] ) + index[2]
+    new_index_y = Lx * ( index[3] * Ly + index[4] ) + index[5]
+
+    return [new_index_x,new_index_y]
 
 # @profile
 def build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,action_size,p_a_mu_m_xy):
@@ -91,6 +100,7 @@ def build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,action_size,p_a_mu_m_xy):
 
     return Tsm_sm_sp
 
+# @profile
 def eta_scipy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
     """
     Solve linear system using scipy sparce
@@ -111,12 +121,15 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
 
     clip = lambda x, l, u: l if x < l else u if x > u else x
 
-    # Create the sparse matrix
-    Tsm_sm_sp = sparse.lil_matrix((M*Ly*Lx, M*Ly*Lx), dtype=np.double)
-
     if verbose >= 1:
         print("--- build_Tsm_sm_sparse_2 ---")
         print("M:",M,"Lx:",Lx,"Ly:",Ly,"Lx0:",Lx0,"Ly0:",Ly0)
+
+    # Collector of the information of the full matrix
+    full_policy_act = np.array([],dtype=np.double)
+    full_index_matrix = np.array([],dtype=int)
+
+
     for im_new in range(M):
         for act in range(act_hdl.A):
 
@@ -174,23 +187,45 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             #-----------------------------------------------------------------
             # Fill the direct values
             #-----------------------------------------------------------------
-            index_policy_act = [ (act, im_new, im, iy+skid_y, ix+skid_x)  
-                                 for im in range(M)  
+            # index_policy_act = [ (act, im_new, im, iy+skid_y, ix+skid_x)  
+            #                      for im in range(M)  
+            #                         for iy in range(limits_y[0],limits_y[1])
+            #                             for ix in range(limits_x[0],limits_x[1]) 
+            #                             ]
+            full_policy_act = np.concatenate(
+               (full_policy_act,
+                np.array([ p_a_mu_m_xy[act, im_new, im, iy+skid_y, ix+skid_x]  
+                                for im in range(M)  
                                     for iy in range(limits_y[0],limits_y[1])
                                         for ix in range(limits_x[0],limits_x[1]) 
                                         ]
-            index_matrix_act = [ index_six_to_two((im_new, iy, ix, im, iy+skid_y, ix+skid_x),M,Ly,Lx)
+                        )
+                )
+            )
+
+            # index_matrix_act = [ index_six_to_two((im_new, iy, ix, im, iy+skid_y, ix+skid_x),M,Ly,Lx)
+            #                      for im in range(M) 
+            #                         for iy in range(limits_y[0],limits_y[1])
+            #                             for ix in range(limits_x[0],limits_x[1]) 
+            #                             ]
+            full_index_matrix = np.concatenate(
+                (full_index_matrix,
+                 np.array([ index_six_to_two_2((im_new, iy, ix, im, iy+skid_y, ix+skid_x),M,Ly,Lx)
                                  for im in range(M) 
                                     for iy in range(limits_y[0],limits_y[1])
                                         for ix in range(limits_x[0],limits_x[1]) 
                                         ]
+                        )
+                )
+            ,axis=None)
+
             if verbose and False:
                 for i in range(Ly+2):
                     print("index_policy_act",index_policy_act[i],"index_matrix_act",index_matrix_act[i])
             # index_matrix_act = [ index_six_to_two(index,M,Ly,Lx) for index in index_matrix_act]
 
-            for t, a in zip(index_matrix_act, index_policy_act):
-                Tsm_sm_sp[t] += p_a_mu_m_xy[a]
+            # for t, a in zip(index_matrix_act, index_policy_act):
+            #     Tsm_sm_sp[t] += p_a_mu_m_xy[a]
 
             #-----------------------------------------------------------------
             # Add the clipped values 
@@ -227,16 +262,38 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
                     print("limits_x",limits_x)
                 
 
-                index_policy_act = [ (act, im_new, im, iy, ix)  
+                # index_policy_act = [ (act, im_new, im, iy, ix)  
+                #                     for im in range(M)  
+                #                         for iy in range_y
+                #                             for ix in range_x 
+                #                             ]
+                full_policy_act = np.concatenate(
+                    (full_policy_act,
+                    np.array([ p_a_mu_m_xy[act, im_new, im, iy, ix]  
                                     for im in range(M)  
                                         for iy in range_y
-                                            for ix in range_x 
+                                            for ix in range_x
                                             ]
-                index_matrix_act = [ index_six_to_two((im_new, iy_clip, ix_clip, im, iy, ix),M,Ly,Lx)
-                                    for im in range(M) 
+                            )
+                    )
+                )
+
+                # index_matrix_act = [ index_six_to_two((im_new, iy_clip, ix_clip, im, iy, ix),M,Ly,Lx)
+                #                     for im in range(M) 
+                #                         for iy_clip, iy in zip(target_y,range_y)
+                #                             for ix_clip, ix in zip(target_x,range_x)
+                #                             ]
+                full_index_matrix = np.concatenate(
+                    (full_index_matrix,
+                     np.array([ index_six_to_two_2((im_new, iy_clip, ix_clip, im, iy, ix),M,Ly,Lx)
+                                     for im in range(M) 
                                         for iy_clip, iy in zip(target_y,range_y)
                                             for ix_clip, ix in zip(target_x,range_x)
                                             ]
+                            )
+                    )
+                ,axis=None)
+
                 if verbose >= 2:
                     print("policy_act size:",len(index_policy_act),"matrix size:",len(index_matrix_act))
                     for i in range(min(Ly+20000,len(index_policy_act))):
@@ -244,14 +301,26 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
 
                 # index_matrix_act = [ index_six_to_two(index,M,Ly,Lx) for index in index_matrix_act]
 
-                for t, a in zip(index_matrix_act, index_policy_act):
-                    Tsm_sm_sp[t] += p_a_mu_m_xy[a]
+                # for t, a in zip(index_matrix_act, index_policy_act):
+                #     Tsm_sm_sp[t] += p_a_mu_m_xy[a]
 
         # End for act
     # End for im_new
 
-    # Delete the rows and columns that have been set to zero depending on the distance to the initial position
+    # Reshape the arrays of indexes to be able to create the sparse matrix
+    entries = full_policy_act.shape[0]
+    full_index_matrix = full_index_matrix.reshape(entries,2)
 
+    if verbose >= 1:
+        print("full_policy_act size:",len(full_policy_act),"full_index_matrix size:",len(full_index_matrix))
+        print("full_policy_act",full_policy_act.shape,"full_index_matrix",full_index_matrix.shape)
+
+    # Create the sparse matrix and fill it with the values
+    Tsm_sm_sp = sparse.coo_matrix((full_policy_act, (full_index_matrix[:,0], full_index_matrix[:,1])), shape=(M*Ly*Lx, M*Ly*Lx), dtype=np.double)
+    # Convert to lil format to be able to set rows and columns to zero
+    Tsm_sm_sp = Tsm_sm_sp.tolil() 
+
+    # Delete the rows and columns that have been set to zero depending on the distance to the initial position
     indexes = np.zeros(6,dtype=int)
     for yx_found in source_as_zero:
         for im in range(M):
