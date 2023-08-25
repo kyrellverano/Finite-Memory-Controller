@@ -1,4 +1,7 @@
 import numpy as np
+import numba
+
+import itertools as it
 import sys
 import json
 import os
@@ -24,8 +27,10 @@ def optimize():
     coarse=params['coarse']   
     dth=params['thresh']
     M = params["M"]         # size of memory m = {0,1}
+
     A = params["A"]         # action available in list: {left, right, up, down} 
-    
+    act_move = params["actions_move"]
+    act_name = params["actions_name"]
     
     O = params["O"]         # distinct observations for actions [0, 1, 2, .., O-1]
     max_obs = params["max_obs"]  # distinct observations for rewards
@@ -98,10 +103,19 @@ def optimize():
 
     #++++++++
     #INITIALIZATIONS
+
+    act_hdl = utils.AgentActions(A)
+    for i,move,name in zip(range(A),act_move,act_name):
+        act_hdl.set_action(i,move,name)
     
+    yxs = it.product(np.arange(Ly), np.arange(Lx))
+    yx_founds = it.filterfalse(lambda x: (x[0]-Ly0)**2 + (x[1]-Lx0)**2 > find_range**2, yxs)
+    source_as_zero = np.array([i for i in yx_founds])
+
+
     eta = np.zeros(L*M)
-    PObs_lim, RR, PObs = utils.create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, 
-                                        reward_find, M, beta, max_obs, O, A, V, data=data)
+    PObs_lim, RR, PObs, RR_np = utils.create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, beta, max_obs, O, A, V, data=data,source_as_zero=source_as_zero,exp_plume=True)
+
     PObs_lim = np.abs(PObs_lim)
 
     # Initial density is only at y=0, proportional to signal probability
@@ -156,14 +170,13 @@ def optimize():
         pi = softmax(th, axis=2)
 
         # Direct linear system solution
-        eta_linear = utils.linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range)
+        eta, T = utils.linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range, act_hdl,source_as_zero)
+        V, Q = utils.linear_solve_Q(T, Lx, Ly, M, A, gamma, find_range, act_hdl, source_as_zero,RR_np)
 
         # Iterative solutions of linear system
         # eta_ite = utils.iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta, tol_eta, Lx, Ly, Lx0, Ly0, find_range)
-        Q = utils.iterative_solve_Q(pi, PObs_lim, gamma, RR, Q, tol_Q, Lx, Ly, Lx0, Ly0, find_range, cost_move)
+        # Q = utils.iterative_solve_Q(pi, PObs_lim, gamma, RR, Q, tol_Q, Lx, Ly, Lx0, Ly0, find_range, cost_move)
 
-        eta = eta_linear
-        
         # Gradient calculation
         grad = utils.find_grad(pi, Q, eta, L, PObs_lim)
         grad -= np.max(grad, axis=2, keepdims=True)

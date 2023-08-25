@@ -3,11 +3,10 @@ from scipy.special import softmax as softmax
 # from scipy import linalg
 import matplotlib.pyplot as plt
 import fast_sparce_multiplications_2D as fast_mult
-# import os
 
+import time 
 # Linear solvers
 from local_linear_solvers import *
-
 
 def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
     """
@@ -20,7 +19,6 @@ def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
     lam = np.sqrt(D*tau/(1+V*V*tau/D/4))
     cplume = aR/(rr+0.01)*np.exp(-rr/lam-yy*V/2/D)
     return cplume
-
 
 def create_random_Q0(Lx, Ly, Lx0, Ly0, gamma, a_size, M, cost_move, reward_find):
     """
@@ -43,12 +41,13 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     Ly0 = int(Ly0)
     
     exp_plume_mat = data.copy()
-    center_x = np.argmax(exp_plume_mat[:,0])
+    # center_x,center_y = np.argmax(exp_plume_mat[:,0])
+    center_x,center_y = np.unravel_index(np.argmax(exp_plume_mat, axis=None),exp_plume_mat.shape)
 
     # symmetrize exp_plume_mat
     min_size = min(center_x, exp_plume_mat.shape[0]-center_x)
     exp_plume_mat = exp_plume_mat[center_x - min_size:center_x + min_size,:].copy()
-    
+
     # padding into shape
     new_size_x = Lx
     new_size_y = Ly
@@ -76,8 +75,20 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     
     return new_plume[::-1,:]
 
+def average_reward(Tsm_sm_matrix, M, Lx, Ly, cost_move,source_as_zero):
+    """
+    This function compute the average reward from the Transition matrix T
+    The dimension of RR is (M, Ly, Lx)
+    """
+    # Tsm_sm = Tsm_sm_matrix.reshape(M, Ly, Lx, M, Ly, Lx)
+    # RR = -cost_move * Tsm_sm.sum(axis=(0,1,2))
 
-def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True):
+    RR = np.full((M, Ly, Lx),-cost_move)
+    RR[:,source_as_zero[:,0],source_as_zero[:,1]] = 0.0
+
+    return RR
+
+def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True,source_as_zero=None):
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
 
@@ -111,17 +122,18 @@ def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax
     PObs_lim[:] = PObs_2[:diff_obs]
     PObs_lim[-1] += np.sum(PObs_2[diff_obs:], axis=0)
 
-#    if A == 4:
-#        RR = fast_mult.rewards_four_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
-#    elif A == 5:
-#        RR = fast_mult.rewards_five_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
+    # if A == 4:
+    #   RR = fast_mult.rewards_four_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
+    # elif A == 5:
+    #   RR = fast_mult.rewards_five_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
     if A == 4:
         RR = fast_mult.rewards_four_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
     elif A == 5:
         RR = fast_mult.rewards_five_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
 
-    return np.abs(PObs_lim), RR, np.abs(PObs)
+    RR_np = average_reward(None, M, Lx, Ly, cost_move, source_as_zero)
 
+    return np.abs(PObs_lim), RR, np.abs(PObs), RR_np
 
 def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, find_range):
     max_it = 10000
@@ -141,17 +153,17 @@ def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, 
             new_eta = rho0 + gamma * fast_mult.mult_eta_four_2d(pi, eta, PObs_lim, Lx0+1, Ly0+1, find_range, Lx, Ly, O, M)
         elif A//M == 5:
             new_eta = rho0 + gamma * fast_mult.mult_eta_five_2d(pi, eta, PObs_lim, Lx0+1, Ly0+1, find_range, Lx, Ly, O, M)
-        if (i%1 == 0):
-            delta = np.max((new_eta-eta)*(new_eta-eta))
-            if (delta < tol2): 
-                return new_eta
+        # if (i%1 == 0):
+        delta = np.max((new_eta-eta)*(new_eta-eta))
+        if (delta < tol2): 
+            return new_eta
         #if ((i+1)%1000 == 0):
         #    print('eta: i {}, delta {}'.format(i, delta))
         eta = new_eta.copy()
     print('NOT CONVERGED - eta')
     return new_eta
 
-
+# @profile
 def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_range, cost_move):
     max_it = 10000
     Q = Q0
@@ -160,9 +172,9 @@ def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_r
     tol2 = 0.   
     meanQ = np.mean(Q)
     if (gamma < 1.):
-      tol2 = tol/(1-gamma)*tol/(1-gamma)
+        tol2 = tol/(1-gamma)*tol/(1-gamma)
     else:
-      tol2 = tol*tol*1000000
+        tol2 = tol*tol*1000000
     for i in range(max_it):
         if A//M == 4:
             new_Q = RR + gamma * fast_mult.mult_q_four_2d(pi, Q, PObs_lim, Lx0+1, Ly0+1, find_range, Lx, Ly, O, M)
@@ -179,7 +191,32 @@ def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_r
     print('NOT CONVERGED - Q')
     return new_Q
 
-def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=eta_scipy_sparce_solve, verbose=False, device='cpu'):
+# Define the action space
+class AgentActions():
+    def __init__(self,actions_number):
+        space_dim = 2
+        self.A = actions_number
+        self.actions = np.zeros((actions_number,space_dim),dtype=int)
+        self.actions_names = {}
+    
+    def set_action(self,action_index : int, action : list, action_name : str ):
+        self.actions[action_index] = np.array(action)
+        self.actions_names[action_index] = action_name
+
+    def action_move(self,action_index : int):
+        if action_index >= self.A:
+            print('Error: action not recognized')
+            return np.array([0, 0])
+        return self.actions[action_index]
+    
+    def action_name(self,action_index : int):
+        if action_index >= self.A:
+            print('Error: action not recognized')
+            return 'Error'
+        return self.actions_names[action_index]
+
+# @profile
+def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range, act_hdl, source_as_zero, func_eta=eta_scipy_sparce_solve, verbose=False, device='cpu'):
     """
     This function should solve the following:
     --> New_eta = (1 - gamma T)^-1 rho
@@ -200,6 +237,8 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,fun
     PY = PObs_lim.reshape(O, M, Ly, Lx)
     # PY has size ~ 10^2
     PAMU = pi.reshape(O, M, M, A//M)
+    # PAMU = softmax( np.zeros((O, M, M, A//M)), 2)
+
     
     p_a_mu_m_xy = np.einsum( 'omyx, omna -> anmyx', PY, PAMU)
     # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
@@ -215,7 +254,10 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,fun
 
     Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,A//M,p_a_mu_m_xy)
 
-    if verbose and mpi_rank == 0:
+    Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
+
+    # if verbose and mpi_rank == 0:
+    if verbose :
         print("-"*50)
         print("Solver info:")
         print("pi shape:",pi.shape)
@@ -236,8 +278,102 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,fun
     else :
         new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=device)
 
-    return new_eta  
+    return new_eta, Tsm_sm_matrix
 
+def get_next_state(state : np.ndarray, action : int, act_hdl : AgentActions, move = None):
+
+    if move is None :
+        move = act_hdl.action_move(action)
+
+    n_rolls = [0,0]
+
+    clipped_x = []
+    dataClipped_x = None
+    clipped_y = []
+    dataClipped_y = None
+
+    # Complex move
+    if move[0] != 0 and move[1] != 0 :
+        state = get_next_state(state, -1, act_hdl, move=[0,move[-1]])
+        state = get_next_state(state, -1, act_hdl, move=[move[-2],0])
+
+    # move in x
+    elif move[-1] != 0 : 
+        col = move[-1]
+        if col < 0 :
+            data2clip = np.s_[:,0]
+            clipped_x = [i for i in range(-col)]
+        else :
+            data2clip = np.s_[:,-1]
+            clipped_x = [-i for i in range(1,col+1)]
+
+        dataClipped_x = state[data2clip].copy()
+
+        n_rolls[-1] = -col
+
+    # move in y 
+    elif move[-2] != 0 : 
+        row = move[-2]
+        if row < 0 :
+            data2clip = np.s_[0,:]
+            clipped_y = [i for i in range(-row)]
+        else :
+            data2clip = np.s_[-1,:]
+            clipped_y = [-i for i in range(1,row+1)]
+
+        dataClipped_y = state[data2clip].copy()
+
+        n_rolls[-2] = -row
+
+    ## move in z
+
+    state = np.roll(state,n_rolls,axis=(0,1))
+
+    for i in clipped_y :
+        state[i,:] = dataClipped_y
+    for i in clipped_x :
+        state[:,i] = dataClipped_x
+
+    return state
+
+
+# @profile
+def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, source_as_zero, reward, func_v=eta_scipy_sparce_solve, verbose=False, device='cpu'):
+    """
+    This function computes the Q function from the reward and the transition matrix
+    """
+
+    cost_move = 1.0 - gamma
+
+    reward = reward.reshape(M*Ly*Lx)
+
+    Tsm_sm_matrix = Tsm_sm_matrix.transpose()
+
+    if func_v == eta_petsc:
+        V = func_v(Tsm_sm_matrix,gamma,M,Lx,Ly,reward,'bcgs','jacobi',device=device)
+    else :
+        V = func_v(Tsm_sm_matrix,gamma,M,Lx,Ly,reward,device=device)
+
+    V = gamma * V 
+    # V = gamma * V - 1.0
+
+    V = V.reshape(M, Ly, Lx)
+
+    state = np.empty((Ly, Lx))
+
+    Q = np.zeros((Ly, Lx, M, A))
+    for im in range(M):
+        for a in range(A):
+            state[:,:] = V[im,:,:]
+            new_state = get_next_state(state, a, act_hdl)
+            new_state = new_state - cost_move
+            new_state[source_as_zero[:,0],source_as_zero[:,1]] = 0
+            Q[:,:,im, a] = new_state
+
+    Q = np.repeat(Q[np.newaxis,:,:,:,:], M,axis=0)
+    Q = Q.flatten()
+            
+    return V, Q
 
 def find_grad(pi, Q, eta, L, PObs_lim):
     # grad J = sum_s sum_a Q(s,a) eta(s) sum_o grad pi(a|s o) f(o|s) 
@@ -269,62 +405,71 @@ def get_value(Q, pi, PObs_lim, L, rho0):
     return value
 
 from types import new_class
-def one_step(a, x, y, Lx, Ly, A):
-  m = a//A
-  newx = x
-  newy = y
-  if (a%A == 0):
-    newx = max(x-1,0)
-  if (a%A == 1):
-    newx = min(x+1,Lx-1)
-  if (a%A == 2):
-    newy = min(y+1,Ly-1)
-  if (a%A == 3):
-    newy = max(y-1,0)
-  return m, newx, newy
+def one_step(a, x, y, Lx, Ly, act_hdl):
+    
+    m = a//act_hdl.A
+    newx = x
+    newy = y
 
-def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, A=4):
+    action = a%act_hdl.A
+
+    clip = lambda x, l, u: l if x < l else u if x > u else x
+
+    newx = clip(newx + act_hdl.action_move(action)[-1], 0, Lx-1)
+    newy = clip(newy + act_hdl.action_move(action)[-2], 0, Ly-1)
+
+    # if (a%A == 0):
+    #     newx = max(x-1,0)
+    # if (a%A == 1):
+    #     newx = min(x+1,Lx-1)
+    # if (a%A == 2):
+    #     newy = min(y+1,Ly-1)
+    # if (a%A == 3):
+    #     newy = max(y-1,0)
+    return m, newx, newy
+
+def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, act_hdl):
   
-  fixed_time = False
-  if gamma>1: 
-    fixed_time = True
-    Tmax = gamma
-  
-  O, M, a_size = pi.shape
-  m = 0
-  s = np.random.choice(Lx*Ly, p=rho0[:Lx*Ly])
-  x , y = (s%Lx, s//Lx)
-  
-  done = False
-  trj=np.zeros((1,5))
-  r = 0
-  ret = 0
-  r = np.random.choice(PObs.shape[0], p=PObs[:,s])
-  o = r
-  #if r > O-1: o = O-1
-  #print(pi.shape)
-  s0 = Lx0-1 + (Ly0-2)*Lx
-  t = 0 
-  while (not done):
-    t += 1
-    a = np.random.choice(a_size, p=pi[o,m,:])
-    #print('m{}, o{}, a{}, x{}, y{}'.format( m,o, a, x,y))
-    #print('s, PObs[s]', s, PObs[:,s])
-    m, x, y = one_step(a, x, y, Lx, Ly, A)
-    #print('new x, y', x, y)
-    s = x + y*Lx
+    fixed_time = False
+    if gamma>1: 
+        fixed_time = True
+        Tmax = gamma
+    
+    O, M, a_size = pi.shape
+    m = 0
+    s = np.random.choice(Lx*Ly, p=rho0[:Lx*Ly])
+    x , y = (s%Lx, s//Lx)
+    
+    done = False
+    trj=np.zeros((1,5))
+    r = 0
+    ret = 0
     r = np.random.choice(PObs.shape[0], p=PObs[:,s])
     o = r
     #if r > O-1: o = O-1
-    found = False
-    if (x+1-Lx0)**2 + (y+1-Ly0)**2 < find_range**2: found = True
-    if found:
-      ret += 1
-      done = True
-      #print('Found!')
-    if fixed_time and t == Tmax:
-      done = True
-    #if np.random.rand()<1-gamma:
-      #done = True
-    trj = np.append(trj, [[a,x,y,m,r]], axis=0)
-  return trj, ret, t
+    #print(pi.shape)
+    s0 = Lx0-1 + (Ly0-2)*Lx
+    t = 0 
+    while (not done):
+        t += 1
+        a = np.random.choice(a_size, p=pi[o,m,:])
+        #print('m{}, o{}, a{}, x{}, y{}'.format( m,o, a, x,y))
+        #print('s, PObs[s]', s, PObs[:,s])
+        m, x, y = one_step(a, x, y, Lx, Ly, act_hdl)
+        #print('new x, y', x, y)
+        s = x + y*Lx
+        r = np.random.choice(PObs.shape[0], p=PObs[:,s])
+        o = r
+        #if r > O-1: o = O-1
+        found = False
+        if (x+1-Lx0)**2 + (y+1-Ly0)**2 < find_range**2: found = True
+        if found:
+            ret += 1
+            done = True
+            #print('Found!')
+        if fixed_time and t == Tmax:
+            done = True
+        #if np.random.rand()<1-gamma:
+            #done = True
+        trj = np.append(trj, [[a,x,y,m,r]], axis=0)
+    return trj, ret, t
