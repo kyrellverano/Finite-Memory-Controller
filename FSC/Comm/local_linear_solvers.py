@@ -1,9 +1,10 @@
+import sys
+import time
 import numpy as np
 import itertools as it
 import scipy.sparse as sparse
 
-import numba
-
+# ----------------------------------------------------------------------------
 def index_six_to_two(index,M,Ly,Lx):
     # Convert the index of an array of 6 dim to 2 dim
     # new_index_x = index[0] * Lx * Ly + index[1] * Lx + index[2]
@@ -99,22 +100,6 @@ def build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,action_size,p_a_mu_m_xy):
             Tsm_sm_sp[:,indexes[1]] = 0
 
     return Tsm_sm_sp
-
-# @profile
-def eta_scipy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
-    """
-    Solve linear system using scipy sparce
-    """
-    Tsm_sm_matrix_sparce = sparse.csr_matrix(Tsm_sm_matrix)
-        
-    Tsm_sm_matrix_sparce *= -gamma
-    Tsm_sm_matrix_sparce += sparse.eye(M*Ly*Lx)
-
-    new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0)
-    return new_eta
-
-def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,device='cpu'):
-    pass
 
 # @profile
 def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,verbose=0):
@@ -334,3 +319,316 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             Tsm_sm_sp[:,indexes_mat[1]] = 0
 
     return Tsm_sm_sp
+
+def load_scipy():
+
+    mpi_rank = 0
+    mpi_size = 1
+    mpi_comm = None
+
+    eta_petsc = None
+
+    # @profile
+    def eta_scipy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
+        """
+        Solve linear system using scipy sparce
+        """
+        Tsm_sm_matrix_sparce = sparse.csr_matrix(Tsm_sm_matrix)
+            
+        Tsm_sm_matrix_sparce *= -gamma
+        Tsm_sm_matrix_sparce += sparse.eye(M*Ly*Lx)
+
+        new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0)
+        return new_eta
+
+    return eta_scipy_sparce_solve, mpi_rank, mpi_size, mpi_comm
+
+def load_petsc():
+    # ----------------------------------------------------------------------------
+    # Try to import petsc4py
+    petsc4py_available = False
+    try :
+        import petsc4py
+        petsc4py.init(sys.argv)
+        from petsc4py import PETSc
+        petsc4py_available = True
+
+        global PETSc
+
+        # OptDB = PETSc.Options()
+        # PETSc.Options().setValue('cuda_device', '1')
+
+        mpi_rank = PETSc.COMM_WORLD.getRank()
+        mpi_size = PETSc.COMM_WORLD.getSize()
+        mpi_comm = PETSc.COMM_WORLD.tompi4py()
+
+        first_allocation = True
+
+
+    except ImportError:
+        mpi_rank = 0
+        mpi_size = 1
+        print('Petsc4py not available')
+    # ----------------------------------------------------------------------------
+    def petsc_barrier():
+        PETSc.COMM_WORLD.barrier()
+
+    # @profile
+    def eta_petsc(Tsm_sm_matrix,gamma,act,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,device='cpu'):
+        """
+        Solve linear system for eta using PETSc
+        """
+        timing = True
+        if timing :
+            timer_step = np.zeros(7)
+            timer_step[0] = time.process_time()
+
+        if device == 'gpu':
+            petsc4py.PETSc.Options().setValue('cuda', '1')
+            mat_type = PETSc.Mat.Type.AIJCUSPARSE
+        else:
+            mat_type = PETSc.Mat.Type.AIJ
+
+        mpi_rank = PETSc.COMM_WORLD.getRank()
+        mpi_size = PETSc.COMM_WORLD.getSize()
+
+        mat_size = M*Lx*Ly
+
+        # Get the maximum number of non zeros values per row for Tsm_sm
+        count_non_zeros_in_row = np.ones(mat_size,dtype=np.int32) * act * M
+        count_non_zeros_in_row[0] -= M
+        count_non_zeros_in_row[-1] -= M
+
+        PETSc.COMM_WORLD.barrier()
+        if timing :
+            timer_step[1] = time.process_time()
+
+        # Create PETSc matrix   
+        A = PETSc.Mat()
+        A.create(comm=PETSc.COMM_WORLD)
+
+        A.setSizes(  ( (PETSc.DECIDE, mat_size), (PETSc.DECIDE, mat_size) ) )
+        A.setType(mat_type)
+        A.setFromOptions()
+        A.setPreallocationNNZ(count_non_zeros_in_row[mpi_rank*mat_size//mpi_size:(mpi_rank+1)*mat_size//mpi_size])
+        A.setUp()
+
+        # Fill PETSc matrix
+        non_zeros_Tsm = np.transpose(np.nonzero(Tsm_sm_matrix))
+        print('nnz Tsm_sm: ', non_zeros_Tsm.shape[0])
+
+        # rstart, rend = A.getOwnershipRange()
+        # local_non_zeros_Tsm = non_zeros_Tsm[non_zeros_Tsm[:,0]>=rstart]
+        # local_non_zeros_Tsm = local_non_zeros_Tsm[local_non_zeros_Tsm[:,0]<rend]
+
+        # for index in local_non_zeros_Tsm:
+        #     # print("Rank: ", mpi_rank, "Index: ", index)
+        #     A[index[0],index[1]] = Tsm_sm_matrix[index[0],index[1]]
+
+        # ------------------------------------------------
+        # """
+        Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
+
+        rstart, rend = A.getOwnershipRange()
+
+        indptr = Tsm_sm_matrix.indptr[rstart:rend+1]-Tsm_sm_matrix.indptr[rstart]
+        indices = Tsm_sm_matrix.indices[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
+        data = Tsm_sm_matrix.data[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
+        A.setValuesCSR(indptr, indices, data,addv=False)
+        # indices_slice = np.s_[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
+
+        # A.setValuesCSR(indptr, Tsm_sm_matrix.indices[indices_slice], Tsm_sm_matrix.data[indices_slice],addv=False)
+        # """
+        # ------------------------------------------------
+        """
+        Tsm_sm_matrix = Tsm_sm_matrix.tocoo()
+        # create a list of tuples (row, col, value)
+        values = list(zip(Tsm_sm_matrix.row, Tsm_sm_matrix.col, Tsm_sm_matrix.data))
+        # sort the list by row
+        values.sort(key=lambda x: x[0])
+        rstart, rend = A.getOwnershipRange()
+        # filter the values to keep only the ones in the ownership range
+        values = [x for x in values if x[0] >= rstart and x[0] < rend]
+        # set the values in the matrix with list comprehension
+        [A.setValues(x[0], x[1], x[2]) for x in values]
+        """
+        # ------------------------------------------------
+
+        A.assemblyBegin()
+
+        # eye matrix with PETSc
+        ones = PETSc.Mat()
+        ones.create(comm=PETSc.COMM_WORLD)
+        ones.setSizes( ( (PETSc.DECIDE, mat_size), (PETSc.DECIDE, mat_size) ) )
+        ones.setType(mat_type)    
+        ones.setFromOptions()
+        ones.setPreallocationNNZ(1)
+
+        rstart, rend = ones.getOwnershipRange()
+        for row in range(rstart, rend):
+            ones.setValues(row,row,1.0)
+
+        ones.assemblyBegin()
+        A.assemblyEnd()
+        ones.assemblyEnd()
+
+        if timing :
+            timer_step[2] = time.process_time()
+
+        # matrix_A =  I - gamma * T
+        A.aypx(-gamma,ones)
+
+        if timing :
+            timer_step[3] = time.process_time()
+
+        # print('Matrix A assembled', A.size)
+        # print(A.getInfo())
+        # print("Options set", A.getOptionsPrefix())
+
+        x, b =  A.createVecs()
+        rstart, rend = b.getOwnershipRange()
+        b.setValuesLocal(np.arange(rstart,rend,dtype=np.int32),rho0[rstart:rend])
+        # b.setValues(np.arange(rho0.shape[0],dtype=np.int32),rho0)
+
+        b.assemble()
+        x.assemble()
+
+        # Start the solver
+        ksp = PETSc.KSP().create(comm=A.getComm())
+        ksp.setOperators(A)
+        ksp.setType(ks_type)
+
+        ksp.getPC().setType(ps_type)
+        ksp.setTolerances(rtol=1e-10)
+
+        ksp.setFromOptions()
+
+        ksp.setUp()
+        ksp.solve(b, x)
+
+        A.destroy()
+        ones.destroy()
+        ksp.destroy()
+        b.destroy()
+
+        if timing :
+            timer_step[4] = time.process_time()
+
+        # Collect all the values across the processors 
+        scatter, eta = PETSc.Scatter.toZero(x)
+        scatter.scatter(x, eta, False, PETSc.Scatter.Mode.FORWARD)
+        PETSc.COMM_WORLD.barrier()
+
+        x.destroy()
+        scatter.destroy()
+        eta = eta.getArray()
+
+        if not mpi_rank == 0 :
+            eta = np.zeros(1)
+
+        if timing :
+            timer_step[5] = time.process_time()
+
+        # broadcast eta to all the processors
+        eta = mpi_comm.bcast(eta, root=0)
+
+        if timing :
+            timer_step[6] = time.process_time()
+
+        if timing :
+            total_time = timer_step[-1] - timer_step[0]
+
+            diff_time = np.zeros(timer_step.size)
+            diff_time[0] = timer_step[0]
+
+            for i in range(1,timer_step.size):
+                diff_time[i] = timer_step[i] - timer_step[i-1]
+
+            timer_step = diff_time / total_time
+            print("Rank:",mpi_rank,
+                "Get row nnz:","{:.2f}".format(timer_step[1]),
+                "Fill A:",     "{:.2f}".format(timer_step[2]),
+                "Compute A:",  "{:.2f}".format(timer_step[3]),
+                "Solve:",      "{:.2f}".format(timer_step[4]),
+                "Scatter:",    "{:.2f}".format(timer_step[5]),
+                "Broadcast:",  "{:.2f}".format(timer_step[6]),
+                "Total:",      "{:.2f}".format(total_time))
+
+        return eta
+
+    return eta_petsc, mpi_rank, mpi_size, mpi_comm
+
+def load_cupy():
+    """
+    Load cupy and cupyx
+    """
+    # Try to import cupy
+    cupy_scipy_available = False
+    try : 
+        import cupy as cp
+        import cupyx.scipy.sparse as cusparse
+        import cupyx.scipy.sparse.linalg
+        cupy_scipy_available = True
+
+    except ImportError:
+        print('Cupy sparse not available')
+    
+    mpi_rank = 0
+    mpi_size = 1
+    mpi_comm = None
+    eta_petsc = None
+
+    cp.cuda.Device(1).use()
+
+
+    # ----------------------------------------------------------------------------
+    def eta_cupy_sparse_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='gpu',verbose=False):
+        """
+        Solve linear system using cupy scipy sparce
+        """
+
+        timing = False
+        if timing :
+            timer_step = np.zeros(4)
+            timer_step[0] = time.process_time()
+
+        if timing :
+            timer_step[1] = time.process_time()
+
+        Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
+
+        to_invert = cusparse.eye(M*Ly*Lx) - gamma * Tsm_sm_matrix_cupy
+        rho0_cupy = cp.asarray(rho0)
+
+        if timing :
+            timer_step[2] = time.process_time()
+
+        new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
+        new_eta = cp.asnumpy(new_eta_cupy)
+
+        if timing :
+            timer_step[3] = time.process_time()
+
+        if verbose :
+            print("      Tsm_sm size: ", Tsm_sm_matrix_cupy.nnz, " Memory size: ", Tsm_sm_matrix_cupy.data.nbytes/1e6, " MB")
+            print("        rho0 size: ", rho0.shape, " Memory size: ", rho0.nbytes/1e6, " MB")
+            print("Total memory size: ", (Tsm_sm_matrix_cupy.data.nbytes + rho0.nbytes)/1e6, " MB")
+        if timing :
+            total_time = timer_step[-1] - timer_step[0]
+
+            diff_time = np.zeros(timer_step.size)
+            diff_time[0] = timer_step[0]
+
+            for i in range(1,timer_step.size):
+                diff_time[i] = timer_step[i] - timer_step[i-1]
+
+            timer_step = diff_time / total_time
+            print("Rank:",mpi_rank,
+                "To csr:","{:.2f}".format(timer_step[1]),
+                "Compute A:",  "{:.2f}".format(timer_step[2]),
+                "Solve:",      "{:.2f}".format(timer_step[3]),
+                "Total:",      "{:.2f}".format(total_time))
+
+        return new_eta
+
+    return eta_cupy_sparse_solve, mpi_rank, mpi_size, mpi_comm

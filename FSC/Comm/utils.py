@@ -8,6 +8,68 @@ import time
 # Linear solvers
 from local_linear_solvers import *
 
+# ----------------------------------------------------------------------------
+class solver_opt:
+
+    def __init__(self):
+        self.function_solver = None
+
+        self.mpi_rank = None
+        self.mpi_size = None
+        self.mpi_comm = None
+
+        self.eta_petsc = None
+
+        self.device = None
+
+    def set_lib_solver(self,solver):
+        """
+        This function set the solver to use for the linear system.
+        """
+        # Set the default solver
+        if solver == None:
+            solver = 'scipy'
+
+        if solver == 'scipy' :
+            load_info = load_scipy()
+            self.function_solver = load_info[0]
+            self.mpi_rank = load_info[1]
+            self.mpi_size = load_info[2]
+            self.mpi_comm = load_info[3]
+
+            self.device = 'cpu'
+
+            if self.mpi_rank == 0:
+                print('Using scipy solver')
+
+        elif solver == 'petsc':
+            load_info = load_petsc()
+            from local_linear_solvers import PETSc 
+
+            self.function_solver = load_info[0]
+            self.eta_petsc = load_info[0]
+            self.mpi_rank = load_info[1]
+            self.mpi_size = load_info[2]
+            self.mpi_comm = load_info[3]
+
+            self.device = 'cpu'
+            OptDB = PETSc.Options()
+            # PETSc.Options().setValue('cuda_device', '2')
+            if self.mpi_rank == 0:
+                print('Using petsc solver')
+
+        elif solver == 'cupy':
+            load_info = load_cupy()
+            self.function_solver = load_info[0]
+            self.mpi_rank = load_info[1]
+            self.mpi_size = load_info[2]
+            self.mpi_comm = load_info[3]
+
+            self.device = 'gpu'
+            if self.mpi_rank == 0:
+                print('Using cupy solver')
+# ----------------------------------------------------------------------------
+
 def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
     """
     Returns a diffusion plume with given parameters.
@@ -216,16 +278,15 @@ class AgentActions():
         return self.actions_names[action_index]
 
 # @profile
-def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range, act_hdl, source_as_zero, func_eta=eta_scipy_sparce_solve, verbose=False, device='cpu'):
+def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range, act_hdl, source_as_zero, verbose=False, solver = None):
     """
     This function should solve the following:
     --> New_eta = (1 - gamma T)^-1 rho
     """
 
-    if func_eta is eta_petsc : 
-        comm = PETSc.COMM_WORLD.tompi4py()
-        mpi_rank = PETSc.COMM_WORLD.getRank()
-        mpi_size = PETSc.COMM_WORLD.getSize()
+    comm = solver.mpi_comm
+    mpi_rank = solver.mpi_rank
+    mpi_size = solver.mpi_size
 
     # O = Observations, M = Memory, A = Actions
     O, M, A = pi.shape
@@ -273,10 +334,10 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range, ac
         print("           Sparse matrix memory size:", Tsm_sm_matrix.data.nbytes/1e6, " MB")
         print("-"*50)
 
-    if func_eta == eta_petsc:
-        new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,'bcgs','jacobi',device=device)
+    if solver.function_solver == solver.eta_petsc:
+        new_eta = solver.function_solver(Tsm_sm_matrix,gamma,act_hdl.A,M,Lx,Ly,rho0,'bcgs','jacobi',device=solver.device)
     else :
-        new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=device)
+        new_eta = solver.function_solver(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=solver.device)
 
     return new_eta, Tsm_sm_matrix
 
@@ -336,9 +397,8 @@ def get_next_state(state : np.ndarray, action : int, act_hdl : AgentActions, mov
 
     return state
 
-
 # @profile
-def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, source_as_zero, reward, func_v=eta_scipy_sparce_solve, verbose=False, device='cpu'):
+def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, source_as_zero, reward, verbose=False, solver=None):
     """
     This function computes the Q function from the reward and the transition matrix
     """
@@ -349,10 +409,10 @@ def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, sourc
 
     Tsm_sm_matrix = Tsm_sm_matrix.transpose()
 
-    if func_v == eta_petsc:
-        V = func_v(Tsm_sm_matrix,gamma,M,Lx,Ly,reward,'bcgs','jacobi',device=device)
+    if solver.function_solver == solver.eta_petsc:
+        V = solver.function_solver(Tsm_sm_matrix,gamma,act_hdl.A,M,Lx,Ly,reward,'bcgs','jacobi',device=solver.device)
     else :
-        V = func_v(Tsm_sm_matrix,gamma,M,Lx,Ly,reward,device=device)
+        V = solver.function_solver(Tsm_sm_matrix,gamma,M,Lx,Ly,reward,device=solver.device)
 
     V = gamma * V 
     # V = gamma * V - 1.0

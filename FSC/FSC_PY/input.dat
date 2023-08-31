@@ -15,7 +15,7 @@
 "find_range" : 1.1, 
 "gamma" : 0.99975,
 "reward_find" : 0,
-"Ntot" : 5, 
+"Ntot" : 2, 
 "Nprint" : 1, 
 "tol_eta" : 0.00000001, 
 "tol_Q" :   0.00000001,
