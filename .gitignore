@@ -3,6 +3,7 @@
 *.txt
 FSC/FSC_NB/outputs/*
 FSC/FSC_PY/ExpPlume*/*
+FSC/FSC_PY/Benchmarks
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
