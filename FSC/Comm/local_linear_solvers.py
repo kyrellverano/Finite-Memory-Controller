@@ -334,14 +334,114 @@ def load_scipy():
         Solve linear system using scipy sparce
         """
         Tsm_sm_matrix_sparce = sparse.csr_matrix(Tsm_sm_matrix)
+        rho0_sparse = sparse.csr_matrix(rho0).T
             
         Tsm_sm_matrix_sparce *= -gamma
         Tsm_sm_matrix_sparce += sparse.eye(M*Ly*Lx)
 
-        new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0)
+        sparse.linalg.use_solver(useUmfpack=False)
+        # new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0_sparse)
+        new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0_sparse,use_umfpack=False)
+        # new_eta, info = sparse.linalg.bicg(Tsm_sm_matrix_sparce,rho0)
         return new_eta
 
-    return eta_scipy_sparce_solve, mpi_rank, mpi_size, mpi_comm
+
+    def eta_scipy_sparce_solve_jacobi(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
+        """
+        Solve linear system using scipy sparce with jacobi method
+        """
+
+        timing = False
+        if timing:
+            timer_step = np.zeros(4)
+            timer_step[0] = time.time()
+        Tsm_sm_matrix_sparce = sparse.csc_matrix(Tsm_sm_matrix)
+        # rho0_sparse = sparse.csr_matrix(rho0).T
+        # eta_sparse = sparse.csr_matrix(eta).T
+
+        Tsm_sm_matrix_sparce *= -gamma
+        Tsm_sm_matrix_sparce += sparse.eye(M*Ly*Lx)
+
+        if timing:
+            timer_step[1] = time.time()
+
+        """
+        D_T = sparse.diags(Tsm_sm_matrix_sparce.diagonal()).tocsc()
+        LU_T = Tsm_sm_matrix_sparce - D_T
+
+        D_T = sparse.linalg.inv(D_T)
+
+        J = -LU_T.dot(D_T)
+        C = D_T.dot(rho0_sparse)
+
+        max_iter = 10000
+        convergence = 1e-5
+        # Iteration loop
+        tmp_eta = eta_sparse.copy()
+        for i in range(max_iter):
+            eta_sparse_new = J.dot(eta_sparse) + C
+
+            if np.allclose(eta_sparse_new.toarray(), eta_sparse.toarray(), atol=convergence):
+                break
+
+            tmp_eta = eta_sparse.copy()
+            eta_sparse = eta_sparse_new.copy()
+
+        print("Iterations:",i)
+        print("norm:",np.sum(eta_sparse_new.toarray().flatten()-tmp_eta.toarray().flatten()))
+        return eta_sparse_new.toarray().flatten()
+
+        """
+
+        print("Iterative method")
+
+        # Preconditioned
+        ilu = sparse.linalg.spilu(Tsm_sm_matrix_sparce)
+        M = sparse.linalg.LinearOperator(Tsm_sm_matrix_sparce.shape, ilu.solve)
+        
+        
+        # solver = sparse.linalg.factorized(Tsm_sm_matrix_sparce)
+
+        if timing:
+            timer_step[2] = time.time()
+
+        new_eta,info = sparse.linalg.gmres(Tsm_sm_matrix_sparce, rho0, x0=eta, tol=1e-5, M=M)
+        
+        # new_eta = solver(rho0)
+        # info = 0 
+
+        # new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce, rho0, use_umfpack=True)
+        # info = 0 
+
+
+
+        if info != 0 :
+            print("info:",info)
+        # new_eta, info = sparse.linalg.bicg(Tsm_sm_matrix_sparce,rho0)
+        
+        
+        if timing:
+            timer_step[3] = time.time()
+            total_time = timer_step[-1] - timer_step[0]
+
+            diff_time = np.zeros(timer_step.size)
+            diff_time[0] = timer_step[0].copy()
+
+            for i in range(1,timer_step.size):
+                diff_time[i] = timer_step[i] - timer_step[i-1]
+
+            timer_step = diff_time / total_time
+            print("Rank:",mpi_rank,
+                "Set T sparse:",   "{:.2f}".format(timer_step[1]),
+                "Precondition:", "{:.2f}".format(timer_step[2]),
+                "Solver:", "{:.2f}".format(timer_step[3]),
+                "Total:",   "{:.2f}".format(total_time))
+
+        
+        
+        return new_eta
+
+    return eta_scipy_sparce_solve,eta_scipy_sparce_solve_jacobi, mpi_rank, mpi_size, mpi_comm
 
 def load_petsc():
     # ----------------------------------------------------------------------------
@@ -373,6 +473,9 @@ def load_petsc():
     def petsc_barrier():
         PETSc.COMM_WORLD.barrier()
 
+    # def petsc_allocate_matrix(M,Lx,Ly):
+    #     ????????????????????????????
+
     # @profile
     def eta_petsc(Tsm_sm_matrix,gamma,act,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,device='cpu'):
         """
@@ -381,7 +484,7 @@ def load_petsc():
         timing = True
         if timing :
             timer_step = np.zeros(7)
-            timer_step[0] = time.process_time()
+            timer_step[0] = time.time()
 
         if device == 'gpu':
             petsc4py.PETSc.Options().setValue('cuda', '1')
@@ -391,6 +494,22 @@ def load_petsc():
 
         mpi_rank = PETSc.COMM_WORLD.getRank()
         mpi_size = PETSc.COMM_WORLD.getSize()
+        mpi_comm = PETSc.COMM_WORLD.tompi4py()
+
+        bcast_list = [Tsm_sm_matrix,gamma,act,M,rho0]
+        if mpi_size > 1:
+            # Broadcast the Tsm_sm_matrix to all the processors
+            bcast_list = mpi_comm.bcast(bcast_list, root=0)
+            Tsm_sm_matrix = bcast_list[0]
+            gamma = bcast_list[1]
+            act = bcast_list[2]
+            M = bcast_list[3]
+            rho0 = bcast_list[4]
+
+            # Tsm_sm_matrix = mpi_comm.bcast(Tsm_sm_matrix, root=0)
+            # act = mpi_comm.bcast(act, root=0)
+            # M = mpi_comm.bcast(M, root=0)
+            # rho0 = mpi_comm.bcast(rho0, root=0)
 
         mat_size = M*Lx*Ly
 
@@ -401,7 +520,7 @@ def load_petsc():
 
         PETSc.COMM_WORLD.barrier()
         if timing :
-            timer_step[1] = time.process_time()
+            timer_step[1] = time.time()
 
         # Create PETSc matrix   
         A = PETSc.Mat()
@@ -415,7 +534,7 @@ def load_petsc():
 
         # Fill PETSc matrix
         non_zeros_Tsm = np.transpose(np.nonzero(Tsm_sm_matrix))
-        print('nnz Tsm_sm: ', non_zeros_Tsm.shape[0])
+        # print('nnz Tsm_sm: ', non_zeros_Tsm.shape[0])
 
         # rstart, rend = A.getOwnershipRange()
         # local_non_zeros_Tsm = non_zeros_Tsm[non_zeros_Tsm[:,0]>=rstart]
@@ -473,13 +592,13 @@ def load_petsc():
         ones.assemblyEnd()
 
         if timing :
-            timer_step[2] = time.process_time()
+            timer_step[2] = time.time()
 
         # matrix_A =  I - gamma * T
         A.aypx(-gamma,ones)
 
         if timing :
-            timer_step[3] = time.process_time()
+            timer_step[3] = time.time()
 
         # print('Matrix A assembled', A.size)
         # print(A.getInfo())
@@ -508,11 +627,13 @@ def load_petsc():
 
         A.destroy()
         ones.destroy()
+        if timing :
+            PETSc.Sys.Print(ksp.view())
         ksp.destroy()
         b.destroy()
 
         if timing :
-            timer_step[4] = time.process_time()
+            timer_step[4] = time.time()
 
         # Collect all the values across the processors 
         scatter, eta = PETSc.Scatter.toZero(x)
@@ -527,15 +648,14 @@ def load_petsc():
             eta = np.zeros(1)
 
         if timing :
-            timer_step[5] = time.process_time()
+            timer_step[5] = time.time()
 
         # broadcast eta to all the processors
         eta = mpi_comm.bcast(eta, root=0)
 
         if timing :
-            timer_step[6] = time.process_time()
-
-        if timing :
+            timer_step[6] = time.time()
+            
             total_time = timer_step[-1] - timer_step[0]
 
             diff_time = np.zeros(timer_step.size)
@@ -556,7 +676,7 @@ def load_petsc():
 
         return eta
 
-    return eta_petsc, mpi_rank, mpi_size, mpi_comm
+    return eta_petsc, eta_petsc, mpi_rank, mpi_size, mpi_comm
 
 def load_cupy():
     """
@@ -578,7 +698,7 @@ def load_cupy():
     mpi_comm = None
     eta_petsc = None
 
-    cp.cuda.Device(1).use()
+    cp.cuda.Device(0).use()
 
 
     # ----------------------------------------------------------------------------
@@ -590,10 +710,10 @@ def load_cupy():
         timing = False
         if timing :
             timer_step = np.zeros(4)
-            timer_step[0] = time.process_time()
+            timer_step[0] = time.time()
 
         if timing :
-            timer_step[1] = time.process_time()
+            timer_step[1] = time.time()
 
         Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
 
@@ -601,19 +721,19 @@ def load_cupy():
         rho0_cupy = cp.asarray(rho0)
 
         if timing :
-            timer_step[2] = time.process_time()
+            timer_step[2] = time.time()
 
         new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
         new_eta = cp.asnumpy(new_eta_cupy)
 
-        if timing :
-            timer_step[3] = time.process_time()
 
         if verbose :
             print("      Tsm_sm size: ", Tsm_sm_matrix_cupy.nnz, " Memory size: ", Tsm_sm_matrix_cupy.data.nbytes/1e6, " MB")
             print("        rho0 size: ", rho0.shape, " Memory size: ", rho0.nbytes/1e6, " MB")
             print("Total memory size: ", (Tsm_sm_matrix_cupy.data.nbytes + rho0.nbytes)/1e6, " MB")
         if timing :
+            timer_step[3] = time.time()
+
             total_time = timer_step[-1] - timer_step[0]
 
             diff_time = np.zeros(timer_step.size)
@@ -631,4 +751,4 @@ def load_cupy():
 
         return new_eta
 
-    return eta_cupy_sparse_solve, mpi_rank, mpi_size, mpi_comm
+    return eta_cupy_sparse_solve, eta_cupy_sparse_solve, mpi_rank, mpi_size, mpi_comm
