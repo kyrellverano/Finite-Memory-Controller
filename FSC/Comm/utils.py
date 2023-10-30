@@ -12,19 +12,30 @@ from local_linear_solvers import *
 class solver_opt:
 
     def __init__(self):
+        """ 
+        This class contains the solver options.
+        """
+
+        # Set the default solver
         self.function_solver_direct = None
         self.function_solver_iter = None
 
+        # Set the algorithm to use
         self.solver_type_eta = 'direct'
         self.solver_type_V = 'direct'
 
-        self.mpi_rank = None
-        self.mpi_size = None
+        # Set the MPI options
+        self.mpi_rank = 0
+        self.mpi_size = 1
         self.mpi_comm = None
 
+        # Set the device to use
         self.use_petsc = False
-
         self.device = None
+
+        self.Tmatrix_index = None
+        self.Tmatrix_p_index = None
+        self.Tsm_sm_sp = None
 
     def set_lib_solver(self,solver):
         """
@@ -38,9 +49,6 @@ class solver_opt:
             load_info = load_scipy()
             self.function_solver_direct = load_info[0]
             self.function_solver_iter = load_info[1]
-            self.mpi_rank = load_info[2]
-            self.mpi_size = load_info[3]
-            self.mpi_comm = load_info[4]
 
             self.device = 'cpu'
 
@@ -52,6 +60,8 @@ class solver_opt:
             from local_linear_solvers import PETSc 
 
             self.use_petsc = True
+            # self.solver_type_eta = 'iter'
+            # self.solver_type_V = 'iter'
 
             self.function_solver_direct = load_info[0]
             self.function_solver_iter = load_info[1]
@@ -64,6 +74,12 @@ class solver_opt:
             # PETSc.Options().setValue('cuda_device', '2')
             if self.mpi_rank == 0:
                 print('Using petsc solver')
+
+            # Keep the allocation
+            self.A = None
+            self.b = None
+            self.x = None
+            self.ones = None
             
 
         elif solver == 'cupy':
@@ -71,16 +87,65 @@ class solver_opt:
 
             self.function_solver_direct = load_info[0]
             self.function_solver_iter = load_info[1]
-            self.mpi_rank = load_info[2]
-            self.mpi_size = load_info[3]
-            self.mpi_comm = load_info[4]
 
             self.device = 'gpu'
+
             if self.mpi_rank == 0:
                 print('Using cupy solver')
+        
+        elif solver == 'numpy_inv':
+            load_info = load_numpy_inv()
+
+            self.function_solver_direct = load_info[0]
+            self.function_solver_iter = load_info[1]
+
+            self.device = 'cpu'
+
+            if self.mpi_rank == 0:
+                print('Using numpy inv solver')
+
+        elif solver == 'numpy':
+            load_info = load_numpy()
+
+            self.function_solver_direct = load_info[0]
+            self.function_solver_iter = load_info[1]
+
+            self.device = 'cpu'
+
+            if self.mpi_rank == 0:
+                print('Using numpy solver')
+
+        elif solver == 'torch_inv':
+            load_info = load_torch_inv()
+
+            self.function_solver_direct = load_info[0]
+            self.function_solver_iter = load_info[1]
+
+            self.device = 'cpu'
+
+            if self.mpi_rank == 0:
+                print('Using PyTorch inv solver')
+
+        elif solver == 'torch':
+            load_info = load_torch()
+
+            self.function_solver_direct = load_info[0]
+            self.function_solver_iter = load_info[1]
+
+            self.device = 'cpu'
+
+            if self.mpi_rank == 0:
+                print('Using Pytorch solver')
+
+        else :
+            print('Error: solver not recognized', solver)
+            assert False, 'Solver not recognized'
+            return
+
+
 # ----------------------------------------------------------------------------
 
-def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
+def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR): 
     """
     Returns a diffusion plume with given parameters.
     """
@@ -295,7 +360,7 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_rang
     --> New_eta = (1 - gamma T)^-1 rho
     """
 
-    timing = False
+    timing = True
     if timing:
         timer_step = np.zeros(3)
         timer_step[0] = time.time()
@@ -323,7 +388,8 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_rang
         # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
         #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
 
-        Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
+        # Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
+        Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
         action_size = act_hdl.A
 
     else:
@@ -365,16 +431,16 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_rang
     if solver.solver_type_eta == 'iter':
         if solver.use_petsc:
             # new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,'bcgs','jacobi',device=solver.device)
-            new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,'preonly','cholesky',device=solver.device)
+            new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,'gmres','ilu',device=solver.device,verbose=verbose)
         else :
-            new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,device=solver.device)
+            new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,device=solver.device,verbose=verbose)
 
     if solver.solver_type_eta == 'direct':
         if solver.use_petsc:
             # new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,action_size,M,Lx,Ly,rho0,'bcgs','jacobi',device=solver.device)
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,action_size,M,Lx,Ly,rho0,'preonly','cholesky',device=solver.device)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,action_size,M,Lx,Ly,rho0,'preonly','lu',device=solver.device, verbose=verbose)
         else :
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=solver.device)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=solver.device, verbose=verbose)
 
         # solver.solver_type_eta = 'iter'
     

@@ -104,6 +104,13 @@ def build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,action_size,p_a_mu_m_xy):
 # @profile
 def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,verbose=0):
 
+    timing = True
+    if timing:
+        print("build 02")
+        timer_step = np.zeros(9)
+        timer_step[-1] = time.time()
+        timer_snaps = np.zeros(9)
+
     clip = lambda x, l, u: l if x < l else u if x > u else x
 
     if verbose >= 1:
@@ -114,9 +121,12 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
     full_policy_act = np.array([],dtype=np.double)
     full_index_matrix = np.array([],dtype=int)
 
-
     for im_new in range(M):
         for act in range(act_hdl.A):
+            
+            if timing:
+                timer_step[0] += time.time() - timer_snaps[4]
+                timer_snaps[0] = time.time()
 
             move = act_hdl.action_move(act)
 
@@ -168,7 +178,10 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             if verbose >= 1:
                 print("-"*50)
                 print("act {:>5}".format(act_hdl.actions_names[act]),"limits y:",limits_y,"x:",limits_x,"move",move,"skid",skid_y,skid_x,"\nclipped",data2clip_range_y,data2clip_range_x,"\nntarget",target2clipped_y,target2clipped_x)
-
+            
+            if timing:
+                timer_step[1] += time.time() - timer_snaps[0]
+                timer_snaps[1] = time.time()
             #-----------------------------------------------------------------
             # Fill the direct values
             #-----------------------------------------------------------------
@@ -179,7 +192,7 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             #                             ]
             full_policy_act = np.concatenate(
                (full_policy_act,
-                np.array([ p_a_mu_m_xy[act, im_new, im, iy+skid_y, ix+skid_x]  
+                np.array([ p_a_mu_m_xy[(act, im_new, im, iy+skid_y, ix+skid_x)]  
                                 for im in range(M)  
                                     for iy in range(limits_y[0],limits_y[1])
                                         for ix in range(limits_x[0],limits_x[1]) 
@@ -187,6 +200,9 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
                         )
                 )
             )
+            if timing:
+                timer_step[2] += time.time() - timer_snaps[1]
+                timer_snaps[2] = time.time()
 
             # index_matrix_act = [ index_six_to_two((im_new, iy, ix, im, iy+skid_y, ix+skid_x),M,Ly,Lx)
             #                      for im in range(M) 
@@ -203,6 +219,10 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
                         )
                 )
             ,axis=None)
+
+            if timing:
+                timer_step[3] += time.time() - timer_snaps[2]
+                timer_snaps[3] = time.time()
 
             if verbose and False:
                 for i in range(Ly+2):
@@ -289,9 +309,20 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
                 # for t, a in zip(index_matrix_act, index_policy_act):
                 #     Tsm_sm_sp[t] += p_a_mu_m_xy[a]
 
+            # End for m_dir
+            if timing:
+                timer_step[4] += time.time() - timer_snaps[3]
+                timer_snaps[4] = time.time()
+                
+
         # End for act
     # End for im_new
 
+    if timing:
+        timer_step[5] = time.time() - timer_step[-1]
+        timer_snaps[5] = time.time()
+
+    print("shape:",full_policy_act.shape,full_index_matrix.shape)
     # Reshape the arrays of indexes to be able to create the sparse matrix
     entries = full_policy_act.shape[0]
     full_index_matrix = full_index_matrix.reshape(entries,2)
@@ -304,6 +335,10 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
     Tsm_sm_sp = sparse.coo_matrix((full_policy_act, (full_index_matrix[:,0], full_index_matrix[:,1])), shape=(M*Ly*Lx, M*Ly*Lx), dtype=np.double)
     # Convert to lil format to be able to set rows and columns to zero
     Tsm_sm_sp = Tsm_sm_sp.tolil() 
+
+    if timing:
+        timer_step[6] = time.time() - timer_snaps[5]
+        timer_snaps[6] = time.time()
 
     # Delete the rows and columns that have been set to zero depending on the distance to the initial position
     indexes = np.zeros(6,dtype=int)
@@ -318,13 +353,324 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             # columns to set zero
             Tsm_sm_sp[:,indexes_mat[1]] = 0
 
+    if timing:
+        timer_step[7] = time.time() - timer_snaps[6]
+        total_time = time.time() - timer_step[-1]
+
+        # diff_time = np.zeros(timer_step.size)
+        # diff_time[0] = timer_step[0].copy()
+
+        # for i in range(1,timer_step.size):
+        #     diff_time[i] = timer_step[i] - timer_step[i-1]
+
+        # timer_step = diff_time / total_time
+        print("Rank:",0,
+            "Move",   "{:.2f}".format(timer_step[1]),
+            "Fill_policy:", "{:.2f}".format(timer_step[2]),
+            "Fill matrix id:", "{:.2f}".format(timer_step[3]),
+            "Clipped:", "{:.2f}".format(timer_step[4]),
+            "For loop:", "{:.2f}".format(timer_step[5]),
+            "Set matrix:", "{:.2f}".format(timer_step[6]),
+            "Zeros:", "{:.2f}".format(timer_step[7]),
+            "Total:",   "{:.2f}".format(total_time))
+
+    return Tsm_sm_sp
+
+
+def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
+    
+    timing = False
+    if timing:
+        timer_step = np.zeros(9)
+        timer_step[-1] = time.time()
+        timer_snaps = np.zeros(9)
+
+    clip = lambda x, l, u: l if x < l else u if x > u else x
+
+    if verbose >= 1:
+        print("--- build_Tsm_sm_sparse_2 ---")
+        print("M:",M,"Lx:",Lx,"Ly:",Ly,"Lx0:",Lx0,"Ly0:",Ly0)
+
+    # Collector of the information of the full matrix
+    full_policy_act = np.array([],dtype=int).reshape(0,5)
+    full_index_matrix = np.array([],dtype=int)
+
+    for im_new in range(M):
+        for act in range(act_hdl.A):
+            
+            if timing:
+                timer_step[0] += time.time() - timer_snaps[4]
+                timer_snaps[0] = time.time()
+
+            move = act_hdl.action_move(act)
+
+            limits_x = [0,Lx]
+            limits_y = [0,Ly]
+            skid_x = 0
+            skid_y = 0
+
+            data2clip_range_x = [] #range(Lx)
+            target2clipped_x  = [] #range(Lx)
+            data2clip_range_y = [] #range(Ly)
+            target2clipped_y  = [] #range(Ly)
+
+            # move in x
+            if move[-1] > 0: # right
+                limits_x[0] += move[-1]
+                skid_x -= move[-1]
+                data2clip_range_x = [i for i in range(Lx+skid_x,Lx)]
+                target2clipped_x = [Lx - 1 for _ in range(abs(move[-1]))]
+            elif move[-1] < 0: # left
+                limits_x[1] += move[-1]
+                skid_x -= move[-1]
+                data2clip_range_x = [i for i in range(skid_x)]
+                target2clipped_x = [0 for _ in range(abs(move[-1]))]
+
+            # move in y
+            if move[-2] > 0: # up
+                limits_y[0] += move[-2]
+                skid_y -= move[-2]
+                data2clip_range_y = [i for i in range(Ly+skid_y,Ly)]
+                target2clipped_y = [Ly - 1 for _ in range(abs(move[-2]))]
+            elif move[-2] < 0: # down
+                limits_y[1] += move[-2]
+                skid_y -= move[-2]
+                data2clip_range_y = [i for i in range(skid_y)]
+                target2clipped_y = [0 for _ in range(abs(move[-2]))]
+            
+            # move in z
+
+            # Number of move directions
+            move_dir = []
+            if move[-1] != 0:
+                move_dir.append(0)
+            if move[-2] != 0:
+                move_dir.append(1)
+            # if move[-3] != 0:
+            #     move_dir.append(2)
+
+            if verbose >= 1:
+                print("-"*50)
+                print("act {:>5}".format(act_hdl.actions_names[act]),"limits y:",limits_y,"x:",limits_x,"move",move,"skid",skid_y,skid_x,"\nclipped",data2clip_range_y,data2clip_range_x,"\nntarget",target2clipped_y,target2clipped_x)
+            
+            if timing:
+                timer_step[1] += time.time() - timer_snaps[0]
+                timer_snaps[1] = time.time()
+            #-----------------------------------------------------------------
+            # Fill the direct values
+            #-----------------------------------------------------------------
+            # index_policy_act = [ (act, im_new, im, iy+skid_y, ix+skid_x)  
+            #                      for im in range(M)  
+            #                         for iy in range(limits_y[0],limits_y[1])
+            #                             for ix in range(limits_x[0],limits_x[1]) 
+            #                             ]
+            full_policy_act = np.concatenate(
+               (full_policy_act,
+                np.array([ [act, im_new, im, iy+skid_y, ix+skid_x]  
+                                for im in range(M)  
+                                    for iy in range(limits_y[0],limits_y[1])
+                                        for ix in range(limits_x[0],limits_x[1]) 
+                                        ]
+                        )
+                )
+            )
+            if timing:
+                timer_step[2] += time.time() - timer_snaps[1]
+                timer_snaps[2] = time.time()
+
+            # index_matrix_act = [ index_six_to_two((im_new, iy, ix, im, iy+skid_y, ix+skid_x),M,Ly,Lx)
+            #                      for im in range(M) 
+            #                         for iy in range(limits_y[0],limits_y[1])
+            #                             for ix in range(limits_x[0],limits_x[1]) 
+            #                             ]
+            full_index_matrix = np.concatenate(
+                (full_index_matrix,
+                 np.array([ index_six_to_two_2((im_new, iy, ix, im, iy+skid_y, ix+skid_x),M,Ly,Lx)
+                                 for im in range(M) 
+                                    for iy in range(limits_y[0],limits_y[1])
+                                        for ix in range(limits_x[0],limits_x[1]) 
+                                        ]
+                        )
+                )
+            ,axis=None)
+
+            if timing:
+                timer_step[3] += time.time() - timer_snaps[2]
+                timer_snaps[3] = time.time()
+
+            if verbose and False:
+                for i in range(Ly+2):
+                    print("index_policy_act",index_policy_act[i],"index_matrix_act",index_matrix_act[i])
+            # index_matrix_act = [ index_six_to_two(index,M,Ly,Lx) for index in index_matrix_act]
+
+            # for t, a in zip(index_matrix_act, index_policy_act):
+            #     Tsm_sm_sp[t] += p_a_mu_m_xy[a]
+
+            #-----------------------------------------------------------------
+            # Add the clipped values 
+            #-----------------------------------------------------------------
+            if verbose >= 1:
+                print("move_dir",move_dir)
+            
+            limits_x = [0,Lx] # list of consecutive actions to clip
+
+            for m_dir in move_dir:
+                # clip in x
+                if m_dir == 0:
+                    range_x = data2clip_range_x
+                    range_y = range(Ly)
+                    target_x = target2clipped_x
+                    target_y = [clip(i,0,Ly-1) for i in range(0-skid_y,Ly-skid_y)]
+
+                    if range_x[0] == 0:
+                        limits_x[0] = len(target_x)
+                        limits_x[1] = Lx
+                    else:   
+                        limits_x[0] = 0
+                        limits_x[1] = Lx - len(target_x) 
+
+                # clip in y
+                elif m_dir == 1:
+                    range_x = range(limits_x[0],limits_x[1])
+                    range_y = data2clip_range_y
+                    target_x = [clip(i,0,Lx-1) for i in range(limits_x[0]-skid_x,limits_x[1]-skid_x)]
+                    target_y = target2clipped_y 
+
+                if verbose >= 1:
+                    print("m_dir",m_dir,"range_x",range_x,"range_y",range_y,"target_x",target_x,"target_y",target_y)
+                    print("limits_x",limits_x)
+                
+
+                # index_policy_act = [ (act, im_new, im, iy, ix)  
+                #                     for im in range(M)  
+                #                         for iy in range_y
+                #                             for ix in range_x 
+                #                             ]
+                full_policy_act = np.concatenate(
+                    (full_policy_act,
+                    np.array([ [act, im_new, im, iy, ix] 
+                                    for im in range(M)  
+                                        for iy in range_y
+                                            for ix in range_x
+                                            ]
+                            )
+                    )
+                )
+
+                # index_matrix_act = [ index_six_to_two((im_new, iy_clip, ix_clip, im, iy, ix),M,Ly,Lx)
+                #                     for im in range(M) 
+                #                         for iy_clip, iy in zip(target_y,range_y)
+                #                             for ix_clip, ix in zip(target_x,range_x)
+                #                             ]
+                full_index_matrix = np.concatenate(
+                    (full_index_matrix,
+                     np.array([ index_six_to_two_2((im_new, iy_clip, ix_clip, im, iy, ix),M,Ly,Lx)
+                                     for im in range(M) 
+                                        for iy_clip, iy in zip(target_y,range_y)
+                                            for ix_clip, ix in zip(target_x,range_x)
+                                            ]
+                            )
+                    )
+                ,axis=None)
+
+                if verbose >= 2:
+                    print("policy_act size:",len(index_policy_act),"matrix size:",len(index_matrix_act))
+                    for i in range(min(Ly+20000,len(index_policy_act))):
+                        print("index_policy_act",index_policy_act[i],"index_matrix_act",index_matrix_act[i])
+
+                # index_matrix_act = [ index_six_to_two(index,M,Ly,Lx) for index in index_matrix_act]
+
+                # for t, a in zip(index_matrix_act, index_policy_act):
+                #     Tsm_sm_sp[t] += p_a_mu_m_xy[a]
+
+            # End for m_dir
+            if timing:
+                timer_step[4] += time.time() - timer_snaps[3]
+                timer_snaps[4] = time.time()
+                
+
+        # End for act
+    # End for im_new
+
+    return full_policy_act, full_index_matrix
+
+
+# @profile
+def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver,verbose=0):
+
+    timing = True
+    if timing:
+        timer_step = np.zeros(5)
+        timer_step[0] = time.time()
+
+    # Compute only once the indexes of the matrix Tsm_sm_sp
+    if solver.Tmatrix_index is None and solver.Tmatrix_p_index is None:
+        solver.Tmatrix_p_index, solver.Tmatrix_index  = set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=verbose)
+
+        entries = solver.Tmatrix_p_index.shape[0]
+        solver.Tmatrix_index = solver.Tmatrix_index.reshape(entries,2)
+
+    if timing:
+        timer_step[1] = time.time()
+
+    # Reshape the arrays of indexes to be able to create the sparse matrix
+
+    full_policy_act = p_a_mu_m_xy[solver.Tmatrix_p_index[:,0],solver.Tmatrix_p_index[:,1],solver.Tmatrix_p_index[:,2],solver.Tmatrix_p_index[:,3],solver.Tmatrix_p_index[:,4]]
+    full_index_matrix = solver.Tmatrix_index
+
+    if verbose >= 1:
+        print("full_policy_act size:",len(full_policy_act),"full_index_matrix size:",len(full_index_matrix))
+        print("full_policy_act",full_policy_act.shape,"full_index_matrix",full_index_matrix.shape)
+
+    if timing:
+        timer_step[2] = time.time()
+    # Create the sparse matrix and fill it with the values
+
+    if solver.Tsm_sm_sp is None:
+        solver.Tsm_sm_sp = sparse.coo_matrix((full_policy_act, (full_index_matrix[:,0], full_index_matrix[:,1])), shape=(M*Ly*Lx, M*Ly*Lx), dtype=np.double)
+    else :
+        solver.Tsm_sm_sp.data = full_policy_act
+
+    # Convert to lil format to be able to set rows and columns to zero
+    Tsm_sm_sp = solver.Tsm_sm_sp.tolil() 
+
+    if timing:
+        timer_step[3] = time.time()
+
+    # Delete the rows and columns that have been set to zero depending on the distance to the initial position
+    indexes = np.zeros(6,dtype=int)
+    for yx_found in source_as_zero:
+        for im in range(M):
+            indexes[0] = indexes[3] = im
+            indexes[1] = indexes[4] = yx_found[0]
+            indexes[2] = indexes[5] = yx_found[1]
+            indexes_mat = index_six_to_two(indexes,M,Ly,Lx)
+            # rows to set zero
+            Tsm_sm_sp[indexes_mat[0],:] = 0
+            # columns to set zero
+            Tsm_sm_sp[:,indexes_mat[1]] = 0
+
+    if timing:
+        timer_step[4] = time.time()
+        total_time = timer_step[-1] - timer_step[0]
+
+        diff_time = np.zeros(timer_step.size)
+        diff_time[0] = timer_step[0].copy()
+
+        for i in range(1,timer_step.size):
+            diff_time[i] = timer_step[i] - timer_step[i-1]
+
+        timer_step = diff_time / total_time
+        print("Rank:",0,
+            "Set index",   "{:.2f}".format(timer_step[1]),
+            "Fill_policy:", "{:.2f}".format(timer_step[2]),
+            "Fill matrix id:", "{:.2f}".format(timer_step[3]),
+            "Zeros", "{:.2f}".format(timer_step[4]),
+            "Total:",   "{:.2f}".format(total_time))
+
     return Tsm_sm_sp
 
 def load_scipy():
-
-    mpi_rank = 0
-    mpi_size = 1
-    mpi_comm = None
 
     eta_petsc = None
 
@@ -441,7 +787,7 @@ def load_scipy():
         
         return new_eta
 
-    return eta_scipy_sparce_solve,eta_scipy_sparce_solve_jacobi, mpi_rank, mpi_size, mpi_comm
+    return eta_scipy_sparce_solve,eta_scipy_sparce_solve_jacobi
 
 def load_petsc():
     # ----------------------------------------------------------------------------
@@ -693,13 +1039,9 @@ def load_cupy():
     except ImportError:
         print('Cupy sparse not available')
     
-    mpi_rank = 0
-    mpi_size = 1
-    mpi_comm = None
     eta_petsc = None
 
     cp.cuda.Device(0).use()
-
 
     # ----------------------------------------------------------------------------
     def eta_cupy_sparse_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='gpu',verbose=False):
@@ -712,10 +1054,10 @@ def load_cupy():
             timer_step = np.zeros(4)
             timer_step[0] = time.time()
 
+        Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
+
         if timing :
             timer_step[1] = time.time()
-
-        Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
 
         to_invert = cusparse.eye(M*Ly*Lx) - gamma * Tsm_sm_matrix_cupy
         rho0_cupy = cp.asarray(rho0)
@@ -751,4 +1093,268 @@ def load_cupy():
 
         return new_eta
 
-    return eta_cupy_sparse_solve, eta_cupy_sparse_solve, mpi_rank, mpi_size, mpi_comm
+    return eta_cupy_sparse_solve, eta_cupy_sparse_solve
+
+def load_numpy_inv():
+    """
+    Load numpy inverse
+    """
+    # Try to import cupy
+    numpy_available = False
+    try : 
+        numpy_available = True
+
+    except ImportError:
+        print('Numpy sparse not available')
+    
+    eta_petsc = None
+
+    # ----------------------------------------------------------------------------
+    def eta_numpy_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='gpu',verbose=False):
+        """
+        Solve linear system using cupy scipy sparce
+        """
+
+        timing = False
+        if timing :
+            timer_step = np.zeros(4)
+            timer_step[0] = time.time()
+
+        Tsm_sm_matrix_local = Tsm_sm_matrix.toarray()
+
+        if timing :
+            timer_step[1] = time.time()
+
+        np.multiply(Tsm_sm_matrix_local,-gamma,out=Tsm_sm_matrix_local)
+        for i in range(M*Ly*Lx):
+            Tsm_sm_matrix_local[i,i] += 1.0
+
+        if timing :
+            timer_step[2] = time.time()
+
+        inverted = np.linalg.inv(Tsm_sm_matrix_local)
+        new_eta = inverted @ rho0
+
+
+        if verbose :
+            print("      Tsm_sm size: ", Tsm_sm_matrix_local.shape, " Memory size: ", Tsm_sm_matrix_local.nbytes/1e6, " MB")
+            print("        rho0 size: ", rho0.shape, " Memory size: ", rho0.nbytes/1e6, " MB")
+            print("    inverted size: ", inverted.shape, " Memory size: ", inverted.nbytes/1e6, " MB")
+            print("Total memory size: ", (Tsm_sm_matrix_local.nbytes + rho0.nbytes + inverted.nbytes)/1e6, " MB")
+
+        if timing :
+            timer_step[3] = time.time()
+
+            total_time = timer_step[-1] - timer_step[0]
+
+            diff_time = np.zeros(timer_step.size)
+            diff_time[0] = timer_step[0]
+
+            for i in range(1,timer_step.size):
+                diff_time[i] = timer_step[i] - timer_step[i-1]
+
+            timer_step = diff_time / total_time
+            print("Rank:",0,
+                "To array:","{:.2f}".format(timer_step[1]),
+                "Compute A:",  "{:.2f}".format(timer_step[2]),
+                "Solve:",      "{:.2f}".format(timer_step[3]),
+                "Total:",      "{:.2f}".format(total_time))
+
+        return new_eta
+
+    return eta_numpy_solve, eta_numpy_solve
+
+def load_numpy():
+    """
+    Load numpy inverse
+    """
+    # Try to import cupy
+    numpy_available = False
+    try : 
+        numpy_available = True
+
+    except ImportError:
+        print('Numpy sparse not available')
+    
+    eta_petsc = None
+
+    # ----------------------------------------------------------------------------
+    def eta_numpy_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='cpu',verbose=False):
+        """
+        Solve linear system using cupy scipy sparce
+        """
+
+        timing = False          
+        if timing :
+            timer_step = np.zeros(4)
+            timer_step[0] = time.time()
+
+        Tsm_sm_matrix_local = Tsm_sm_matrix.toarray()
+
+        if timing :
+            timer_step[1] = time.time()
+
+        np.multiply(Tsm_sm_matrix_local,-gamma,out=Tsm_sm_matrix_local)
+        for i in range(M*Ly*Lx):
+            Tsm_sm_matrix_local[i,i] += 1.0
+
+        if timing :
+            timer_step[2] = time.time()
+
+        new_eta = np.linalg.solve(Tsm_sm_matrix_local,rho0)
+
+        if verbose :
+            print("      Tsm_sm size: ", Tsm_sm_matrix_local.shape, " Memory size: ", Tsm_sm_matrix_local.nbytes/1e6, " MB")
+            print("        rho0 size: ", rho0.shape, " Memory size: ", rho0.nbytes/1e6, " MB")
+            print("Total memory size: ", (Tsm_sm_matrix_local.nbytes + rho0.nbytes)/1e6, " MB")
+
+        if timing :
+            timer_step[3] = time.time()
+
+            total_time = timer_step[-1] - timer_step[0]
+
+            diff_time = np.zeros(timer_step.size)
+            diff_time[0] = timer_step[0]
+
+            for i in range(1,timer_step.size):
+                diff_time[i] = timer_step[i] - timer_step[i-1]
+
+            timer_step = diff_time / total_time
+            print("Rank:",0,
+                "To array:","{:.2f}".format(timer_step[1]),
+                "Compute A:",  "{:.2f}".format(timer_step[2]),
+                "Solve:",      "{:.2f}".format(timer_step[3]),
+                "Total:",      "{:.2f}".format(total_time))
+
+        return new_eta
+
+    return eta_numpy_solve, eta_numpy_solve
+
+def load_torch_inv():
+    """
+    Load Pytorch inverse
+    """
+    # Try to import PyTorch
+    torch_available = False
+    try : 
+        import torch as torch
+        dtype = torch.double
+        if torch.cuda.is_available():
+            device_torch = torch.device("cuda:0")
+        else:
+            device_torch = torch.device("cpu")
+    
+        torch_available = True
+
+    except ImportError:
+        print('Pytorch not available')
+    
+    eta_petsc = None
+    # ----------------------------------------------------------------------------
+    def eta_torch(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
+        """
+        Invert a matrix using torch
+        """
+        if device == 'cpu':
+            device_torch = torch.device('cpu')
+        else:
+            device_torch = torch.device('cuda:0')
+
+        try :
+            Tsm_sm_matrix_local = Tsm_sm_matrix.toarray()
+
+            np.multiply(Tsm_sm_matrix_local,-gamma,out=Tsm_sm_matrix_local)
+            for i in range(M*Ly*Lx):
+                Tsm_sm_matrix_local[i,i] += 1.0
+
+            Tsm_sm_matrix_torch = torch.from_numpy(Tsm_sm_matrix_local).type(dtype).to(device_torch)
+
+            rho0_torch = torch.from_numpy(rho0).type(dtype).to(device_torch)
+
+            inverted = torch.torch.linalg.inv(Tsm_sm_matrix_torch)
+            new_eta = inverted @ rho0_torch
+
+            new_eta = new_eta.cpu().numpy()
+            Tsm_sm_matrix_local = None
+
+            if torch.cuda.is_available():
+                Tsm_sm_matrix_torch = None
+                rho0_torch = None
+                inverted = None
+                torch.cuda.empty_cache()
+        except Exception as error:
+            print("Error inverting matrix with torch")
+            print(error)
+            Tsm_sm_matrix_torch = None
+            rho0_torch = None
+            inverted = None
+            torch.cuda.empty_cache()
+            new_eta = np.zeros(M*Ly*Lx)
+
+        return new_eta
+    
+    return eta_torch, eta_torch
+
+def load_torch():
+    """
+    Load Pytorch
+    """
+    # Try to import PyTorch
+    torch_available = False
+    try : 
+        import torch as torch
+        dtype = torch.double
+        if torch.cuda.is_available():
+            device_torch = torch.device("cuda:0")
+        else:
+            device_torch = torch.device("cpu")
+    
+        torch_available = True
+
+    except ImportError:
+        print('Pytorch not available')
+    
+    eta_petsc = None
+    # ----------------------------------------------------------------------------
+    def eta_torch(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
+        """
+        Invert a matrix using torch
+        """
+        if device == 'cpu':
+            device_torch = torch.device('cpu')
+        else:
+            device_torch = torch.device('cuda:0')
+
+        try :
+            Tsm_sm_matrix_local = Tsm_sm_matrix.toarray()
+
+            np.multiply(Tsm_sm_matrix_local,-gamma,out=Tsm_sm_matrix_local)
+            for i in range(M*Ly*Lx):
+                Tsm_sm_matrix_local[i,i] += 1.0
+
+            Tsm_sm_matrix_torch = torch.from_numpy(Tsm_sm_matrix_local).type(dtype).to(device_torch)
+
+            rho0_torch = torch.from_numpy(rho0).type(dtype).to(device_torch)
+
+            new_eta = torch.linalg.solve(Tsm_sm_matrix_torch,rho0_torch)
+
+            new_eta = new_eta.cpu().numpy()
+            Tsm_sm_matrix_local = None
+
+            if torch.cuda.is_available():
+                Tsm_sm_matrix_torch = None
+                rho0_torch = None
+                inverted = None
+                torch.cuda.empty_cache()
+        except Exception as error:
+            print("Error inverting matrix with torch")
+            print(error)
+            Tsm_sm_matrix_torch = None
+            rho0_torch = None
+            inverted = None
+            torch.cuda.empty_cache()
+            new_eta = np.zeros(M*Ly*Lx)
+
+        return new_eta
+    
+    return eta_torch, eta_torch

@@ -43,6 +43,9 @@ mpi_rank = solver.mpi_rank
 mpi_size = solver.mpi_size
 mpi_comm = solver.mpi_comm
 
+if sys.argv[4] :
+    solver.device = sys.argv[4]
+
 device = solver.device
 
 # ----------------------------------------------------------------------------
