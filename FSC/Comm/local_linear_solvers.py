@@ -594,11 +594,10 @@ def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
 
     return full_policy_act, full_index_matrix
 
-
 # @profile
 def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver,verbose=0):
 
-    timing = True
+    timing = False
     if timing:
         timer_step = np.zeros(5)
         timer_step[0] = time.time()
@@ -808,9 +807,6 @@ def load_petsc():
         mpi_size = PETSc.COMM_WORLD.getSize()
         mpi_comm = PETSc.COMM_WORLD.tompi4py()
 
-        first_allocation = True
-
-
     except ImportError:
         mpi_rank = 0
         mpi_size = 1
@@ -823,7 +819,7 @@ def load_petsc():
     #     ????????????????????????????
 
     # @profile
-    def eta_petsc(Tsm_sm_matrix,gamma,act,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,device='cpu'):
+    def eta_petsc(Tsm_sm_matrix,eta,gamma,act,M,Lx,Ly,rho0,ks_type,ps_type,solver,verbose=False,device='cpu'):
         """
         Solve linear system for eta using PETSc
         """
@@ -842,64 +838,82 @@ def load_petsc():
         mpi_size = PETSc.COMM_WORLD.getSize()
         mpi_comm = PETSc.COMM_WORLD.tompi4py()
 
-        bcast_list = [Tsm_sm_matrix,gamma,act,M,rho0]
+        if mpi_rank == 0:
+            Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
+
+        if solver.A is None:
+            solver.Tsm_sm_sp_petsc = mpi_comm.bcast(Tsm_sm_matrix, root=0)
+            solver.var_list = mpi_comm.bcast([gamma,act,M], root=0)
+
+        gamma,act,M = solver.var_list
+        mat_size = M*Lx*Ly
+
+        # print('rank:      ',mpi_rank,type(solver.Tsm_sm_sp_petsc),solver.Tsm_sm_sp_petsc.shape)
+
+        if mpi_rank  == 0:
+            bcast_list = np.concatenate((eta,rho0,Tsm_sm_matrix.data))
+        else:
+            bcast_list = None
         if mpi_size > 1:
             # Broadcast the Tsm_sm_matrix to all the processors
             bcast_list = mpi_comm.bcast(bcast_list, root=0)
-            Tsm_sm_matrix = bcast_list[0]
-            gamma = bcast_list[1]
-            act = bcast_list[2]
-            M = bcast_list[3]
-            rho0 = bcast_list[4]
+            eta = bcast_list[:mat_size]
+            rho0 = bcast_list[mat_size:2*mat_size]
+            solver.Tsm_sm_sp_petsc.data = bcast_list[2*mat_size:]
 
             # Tsm_sm_matrix = mpi_comm.bcast(Tsm_sm_matrix, root=0)
             # act = mpi_comm.bcast(act, root=0)
             # M = mpi_comm.bcast(M, root=0)
             # rho0 = mpi_comm.bcast(rho0, root=0)
 
-        mat_size = M*Lx*Ly
 
         # Get the maximum number of non zeros values per row for Tsm_sm
         count_non_zeros_in_row = np.ones(mat_size,dtype=np.int32) * act * M
         count_non_zeros_in_row[0] -= M
         count_non_zeros_in_row[-1] -= M
 
-        PETSc.COMM_WORLD.barrier()
+        # PETSc.COMM_WORLD.barrier()
         if timing :
             timer_step[1] = time.time()
 
-        # Create PETSc matrix   
-        A = PETSc.Mat()
-        A.create(comm=PETSc.COMM_WORLD)
+        if solver.A is None:
+        # if True:
+            # Create PETSc matrix   
+            A = PETSc.Mat()
+            A.create(comm=PETSc.COMM_WORLD)
 
-        A.setSizes(  ( (PETSc.DECIDE, mat_size), (PETSc.DECIDE, mat_size) ) )
-        A.setType(mat_type)
-        A.setFromOptions()
-        A.setPreallocationNNZ(count_non_zeros_in_row[mpi_rank*mat_size//mpi_size:(mpi_rank+1)*mat_size//mpi_size])
-        A.setUp()
+            A.setSizes(  ( (PETSc.DECIDE, mat_size), (PETSc.DECIDE, mat_size) ) )
+            A.setType(mat_type)
+            A.setFromOptions()
+            A.setPreallocationNNZ(count_non_zeros_in_row[mpi_rank*mat_size//mpi_size:(mpi_rank+1)*mat_size//mpi_size])
+            A.setUp()
+            solver.A = A
+        else :
+            solver.A.zeroEntries()
 
         # Fill PETSc matrix
+        """
         non_zeros_Tsm = np.transpose(np.nonzero(Tsm_sm_matrix))
-        # print('nnz Tsm_sm: ', non_zeros_Tsm.shape[0])
+        print('nnz Tsm_sm: ', non_zeros_Tsm.shape[0])
 
-        # rstart, rend = A.getOwnershipRange()
-        # local_non_zeros_Tsm = non_zeros_Tsm[non_zeros_Tsm[:,0]>=rstart]
-        # local_non_zeros_Tsm = local_non_zeros_Tsm[local_non_zeros_Tsm[:,0]<rend]
+        rstart, rend = solver.A.getOwnershipRange()
+        local_non_zeros_Tsm = non_zeros_Tsm[non_zeros_Tsm[:,0]>=rstart]
+        local_non_zeros_Tsm = local_non_zeros_Tsm[local_non_zeros_Tsm[:,0]<rend]
 
-        # for index in local_non_zeros_Tsm:
-        #     # print("Rank: ", mpi_rank, "Index: ", index)
-        #     A[index[0],index[1]] = Tsm_sm_matrix[index[0],index[1]]
+        for index in local_non_zeros_Tsm:
+            # print("Rank: ", mpi_rank, "Index: ", index)
+            solver.A[index[0],index[1]] = Tsm_sm_matrix[index[0],index[1]]
 
         # ------------------------------------------------
-        # """
-        Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
+        """
 
-        rstart, rend = A.getOwnershipRange()
+        Tsm_sm_matrix = solver.Tsm_sm_sp_petsc  
+        rstart, rend = solver.A.getOwnershipRange()
 
         indptr = Tsm_sm_matrix.indptr[rstart:rend+1]-Tsm_sm_matrix.indptr[rstart]
         indices = Tsm_sm_matrix.indices[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
         data = Tsm_sm_matrix.data[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
-        A.setValuesCSR(indptr, indices, data,addv=False)
+        solver.A.setValuesCSR(indptr, indices, data,addv=False)
         # indices_slice = np.s_[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
 
         # A.setValuesCSR(indptr, Tsm_sm_matrix.indices[indices_slice], Tsm_sm_matrix.data[indices_slice],addv=False)
@@ -918,30 +932,33 @@ def load_petsc():
         [A.setValues(x[0], x[1], x[2]) for x in values]
         """
         # ------------------------------------------------
-
-        A.assemblyBegin()
-
-        # eye matrix with PETSc
-        ones = PETSc.Mat()
-        ones.create(comm=PETSc.COMM_WORLD)
-        ones.setSizes( ( (PETSc.DECIDE, mat_size), (PETSc.DECIDE, mat_size) ) )
-        ones.setType(mat_type)    
-        ones.setFromOptions()
-        ones.setPreallocationNNZ(1)
-
-        rstart, rend = ones.getOwnershipRange()
-        for row in range(rstart, rend):
-            ones.setValues(row,row,1.0)
-
-        ones.assemblyBegin()
-        A.assemblyEnd()
-        ones.assemblyEnd()
-
         if timing :
             timer_step[2] = time.time()
 
+        solver.A.assemblyBegin()
+        solver.A.assemblyEnd()
+
+        if solver.ones is None:
+            # eye matrix with PETSc
+            ones = PETSc.Mat()
+            ones.create(comm=PETSc.COMM_WORLD)
+            ones.setSizes( ( (PETSc.DECIDE, mat_size), (PETSc.DECIDE, mat_size) ) )
+            ones.setType(mat_type)    
+            ones.setFromOptions()
+            ones.setPreallocationNNZ(1)
+
+            rstart, rend = ones.getOwnershipRange()
+            for row in range(rstart, rend):
+                ones.setValues(row,row,1.0)
+
+            ones.assemblyBegin()
+            ones.assemblyEnd()
+
+            solver.ones = ones
+
+
         # matrix_A =  I - gamma * T
-        A.aypx(-gamma,ones)
+        solver.A.aypx(-gamma,solver.ones)
 
         if timing :
             timer_step[3] = time.time()
@@ -950,43 +967,57 @@ def load_petsc():
         # print(A.getInfo())
         # print("Options set", A.getOptionsPrefix())
 
-        x, b =  A.createVecs()
-        rstart, rend = b.getOwnershipRange()
-        b.setValuesLocal(np.arange(rstart,rend,dtype=np.int32),rho0[rstart:rend])
-        # b.setValues(np.arange(rho0.shape[0],dtype=np.int32),rho0)
+        if solver.x is None and solver.b is None:
+            x, b =  solver.A.createVecs()
+            solver.x = x
+            solver.b = b
 
-        b.assemble()
-        x.assemble()
+        rstart, rend = solver.b.getOwnershipRange()
+        solver.b.setValuesLocal(np.arange(rstart,rend,dtype=np.int32),rho0[rstart:rend])
+        # print(eta.shape,eta)
+        solver.x.setValuesLocal(np.arange(rstart,rend,dtype=np.int32),eta[rstart:rend])
+
+        solver.b.assemble()
+        solver.x.assemble()
 
         # Start the solver
-        ksp = PETSc.KSP().create(comm=A.getComm())
-        ksp.setOperators(A)
-        ksp.setType(ks_type)
+        if solver.ksp is None:
+        # if True:
+            ksp = PETSc.KSP().create(comm=solver.A.getComm())
+            ksp.setOperators(solver.A)
+            ksp.setType(ks_type)
 
-        ksp.getPC().setType(ps_type)
-        ksp.setTolerances(rtol=1e-10)
+            ksp.getPC().setType(ps_type)
+            ksp.setTolerances(rtol=1e-10)
 
-        ksp.setFromOptions()
+            ksp.setFromOptions()
 
-        ksp.setUp()
-        ksp.solve(b, x)
+            print("KSP type:",ksp.getType())
+            if ksp.getType() != 'preonly':
+                ksp.setInitialGuessNonzero(True)
 
-        A.destroy()
-        ones.destroy()
-        if timing :
-            PETSc.Sys.Print(ksp.view())
-        ksp.destroy()
-        b.destroy()
+
+            ksp.setUp()
+            solver.ksp = ksp
+        
+        solver.ksp.solve(solver.b, solver.x)
+
+        # A.destroy()
+        # ones.destroy()
+        # if timing :
+        #     PETSc.Sys.Print(solver.ksp.view())
+        # ksp.destroy()
+        # b.destroy()
 
         if timing :
             timer_step[4] = time.time()
 
         # Collect all the values across the processors 
-        scatter, eta = PETSc.Scatter.toZero(x)
-        scatter.scatter(x, eta, False, PETSc.Scatter.Mode.FORWARD)
+        scatter, eta = PETSc.Scatter.toZero(solver.x)
+        scatter.scatter(solver.x, eta, False, PETSc.Scatter.Mode.FORWARD)
         PETSc.COMM_WORLD.barrier()
 
-        x.destroy()
+        # x.destroy()
         scatter.destroy()
         eta = eta.getArray()
 

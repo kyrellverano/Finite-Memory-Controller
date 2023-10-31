@@ -60,6 +60,8 @@ class solver_opt:
             from local_linear_solvers import PETSc 
 
             self.use_petsc = True
+            self.ksp_type = 'preonly'          
+            self.pc_type = 'lu'
             # self.solver_type_eta = 'iter'
             # self.solver_type_V = 'iter'
 
@@ -76,10 +78,14 @@ class solver_opt:
                 print('Using petsc solver')
 
             # Keep the allocation
+            self.Tsm_sm_sp_petsc = None
+            self.var_list = None
             self.A = None
             self.b = None
             self.x = None
             self.ones = None
+            self.ksp = None
+            self.first_allocation = True
             
 
         elif solver == 'cupy':
@@ -431,14 +437,14 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_rang
     if solver.solver_type_eta == 'iter':
         if solver.use_petsc:
             # new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,'bcgs','jacobi',device=solver.device)
-            new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,'gmres','ilu',device=solver.device,verbose=verbose)
+            new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,solver.ksp_type,solver.pc_type,solver,device=solver.device,verbose=verbose)
         else :
             new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,device=solver.device,verbose=verbose)
 
     if solver.solver_type_eta == 'direct':
         if solver.use_petsc:
             # new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,action_size,M,Lx,Ly,rho0,'bcgs','jacobi',device=solver.device)
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,action_size,M,Lx,Ly,rho0,'preonly','lu',device=solver.device, verbose=verbose)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,solver.ksp_type,solver.pc_type,solver,device=solver.device, verbose=verbose)
         else :
             new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=solver.device, verbose=verbose)
 
@@ -542,13 +548,13 @@ def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, sourc
 
     if solver.solver_type_V == 'iter':
         if solver.use_petsc:
-            V = solver.function_solver_iter(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,'bcgs','jacobi',device=solver.device)
+            V = solver.function_solver_iter(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,solver.ksp_type,solver.pc_type,solver,device=solver.device)
         else :
             V = solver.function_solver_iter(Tsm_sm_matrix,V,gamma,M,Lx,Ly,reward,device=solver.device)
 
     if solver.solver_type_V == 'direct':
         if solver.use_petsc:
-            V = solver.function_solver_direct(Tsm_sm_matrix,gamma,action_size,M,Lx,Ly,reward,'bcgs','jacobi',device=solver.device)
+            V = solver.function_solver_direct(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,solver.ksp_type,solver.pc_type,solver,device=solver.device)
         else :
             V = solver.function_solver_direct(Tsm_sm_matrix,gamma,M,Lx,Ly,reward,device=solver.device)
 

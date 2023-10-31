@@ -219,6 +219,9 @@ def optimize():
                 th[1:,:,2::A] -= 0.5
             eta = np.ones(eta.shape)/(L*M)/(1-gamma)
             Q = utils.create_random_Q0(Lx, Ly, Lx0, Ly0, gamma, a_size, M, cost_move, reward_find) 
+        
+        V = np.zeros(L*M)
+
 
         # Create the initial policy
         pi = softmax(th, axis=2)
