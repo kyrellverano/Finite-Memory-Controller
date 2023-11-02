@@ -812,11 +812,6 @@ def load_petsc():
         mpi_size = 1
         print('Petsc4py not available')
     # ----------------------------------------------------------------------------
-    def petsc_barrier():
-        PETSc.COMM_WORLD.barrier()
-
-    # def petsc_allocate_matrix(M,Lx,Ly):
-    #     ????????????????????????????
 
     # @profile
     def eta_petsc(Tsm_sm_matrix,eta,gamma,act,M,Lx,Ly,rho0,ks_type,ps_type,solver,verbose=False,device='cpu'):
@@ -992,7 +987,7 @@ def load_petsc():
 
             ksp.setFromOptions()
 
-            print("KSP type:",ksp.getType())
+            # print("KSP type:",ksp.getType())
             if ksp.getType() != 'preonly':
                 ksp.setInitialGuessNonzero(True)
 
@@ -1053,7 +1048,33 @@ def load_petsc():
 
         return eta
 
-    return eta_petsc, eta_petsc, mpi_rank, mpi_size, mpi_comm
+    def free_memory(solver):
+        """
+        Free memory
+        """
+        if solver.A is not None:
+            solver.A.destroy()
+            solver.A = None
+        if solver.ksp is not None:
+            solver.ksp.destroy()
+            solver.ksp = None
+        if solver.b is not None:
+            solver.b.destroy()
+            solver.b = None
+        if solver.x is not None:
+            solver.x.destroy()
+            solver.x = None
+        if solver.ones is not None:
+            solver.ones.destroy()
+            solver.ones = None
+        if solver.Tsm_sm_sp_petsc is not None:
+            solver.Tsm_sm_sp_petsc = None
+        if solver.var_list is not None:
+            solver.var_list = None
+
+    return eta_petsc, eta_petsc, mpi_rank, mpi_size, mpi_comm, free_memory
+
+
 
 def load_cupy():
     """

@@ -121,8 +121,11 @@ def optimize():
     find_range = params["find_range"]
     gamma = params["gamma"]
     V = 100
+    plume_factor = factor_size
     if ("V" in params.keys()):
         V = params["V"]
+    if ("plume_factor" in params.keys()):
+        V = params["plume_factor"]
 
     # combined action space = M * A, lM0, lM1, ... rM0, rM1, ..., sM0, sM1, ...
     a_size = A * M
@@ -342,7 +345,8 @@ def optimize():
             pi = softmax(th, axis=2)
     # End for loop optimization
     # ----------------------------------------------------------------------------
-
+    if solver.use_petsc:
+        solver.free_petsc(solver)
     # final print
     if mpi_rank == 0:
         np.savetxt(name_folder + '/file_theta.out', th.reshape(-1))

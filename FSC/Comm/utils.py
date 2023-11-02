@@ -70,6 +70,7 @@ class solver_opt:
             self.mpi_rank = load_info[2]
             self.mpi_size = load_info[3]
             self.mpi_comm = load_info[4]
+            self.free_petsc = load_info[5]
 
             self.device = 'cpu'
             OptDB = PETSc.Options()
@@ -85,7 +86,6 @@ class solver_opt:
             self.x = None
             self.ones = None
             self.ksp = None
-            self.first_allocation = True
             
 
         elif solver == 'cupy':
@@ -151,7 +151,7 @@ class solver_opt:
 
 # ----------------------------------------------------------------------------
 
-def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR): 
+def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR, alpha=1.0): 
     """
     Returns a diffusion plume with given parameters.
     """
@@ -160,7 +160,7 @@ def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR):
     xx, yy = np.meshgrid(spacex, spacey)
     rr = np.sqrt(xx**2 + yy**2)
     lam = np.sqrt(D*tau/(1+V*V*tau/D/4))
-    cplume = aR/(rr+0.01)*np.exp(-rr/lam-yy*V/2/D)
+    cplume = aR/(rr+0.01)*np.exp(-rr/lam * alpha -yy*V/2/D *alpha)
     return cplume
 
 def create_random_Q0(Lx, Ly, Lx0, Ly0, gamma, a_size, M, cost_move, reward_find):
@@ -232,7 +232,7 @@ def average_reward(Tsm_sm_matrix, M, Lx, Ly, cost_move,source_as_zero):
 
     return RR
 
-def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True,source_as_zero=None):
+def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True,source_as_zero=None,plume_factor=1.0):
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
 
@@ -243,7 +243,7 @@ def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax
     if exp_plume:
         cplume = create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data)
     else:
-        cplume = create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, cmax)
+        cplume = create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, cmax, alpha=plume_factor)
     # ------------------  
     cplume = cplume[:,:].reshape(-1)  
     PObs = np.zeros((max_obs, Lx * Ly))
@@ -270,14 +270,14 @@ def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax
     #   RR = fast_mult.rewards_four_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
     # elif A == 5:
     #   RR = fast_mult.rewards_five_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
-    if A == 4:
-        RR = fast_mult.rewards_four_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
-    elif A == 5:
-        RR = fast_mult.rewards_five_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
+    # if A == 4:
+    #     RR = fast_mult.rewards_four_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
+    # elif A == 5:
+    #     RR = fast_mult.rewards_five_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
 
     RR_np = average_reward(None, M, Lx, Ly, cost_move, source_as_zero)
 
-    return np.abs(PObs_lim), RR, np.abs(PObs), RR_np
+    return np.abs(PObs_lim), RR_np, np.abs(PObs), RR_np
 
 def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, find_range):
     max_it = 10000

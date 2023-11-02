@@ -1,7 +1,7 @@
 {"coarse" : 0,
 "thresh" : 5,
 "M" : 4, 
-"A" : 4,
+"A" : 5,
 "actions_move" : [[0,-1],[0,1],[1,0],[-1,0]],
 "actions_name" : ["left","right","up","down"],
 "O" : 2, 

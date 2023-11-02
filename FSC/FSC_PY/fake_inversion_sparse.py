@@ -181,7 +181,7 @@ def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,dev
     timing = False
     if timing :
         timer_step = np.zeros(6)
-        timer_step[0] = time.process_time()
+        timer_step[0] = time.perf_counter()
 
     if device == 'gpu':
         petsc4py.PETSc.Options().setValue('cuda', '1')
@@ -200,7 +200,7 @@ def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,dev
     count_non_zeros_in_row[-1] -= M
 
     if timing :
-        timer_step[1] = time.process_time()
+        timer_step[1] = time.perf_counter()
 
     # Create PETSc matrix
     A = PETSc.Mat()
@@ -242,13 +242,13 @@ def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,dev
     ones.assemblyEnd()
 
     if timing :
-        timer_step[2] = time.process_time()
+        timer_step[2] = time.perf_counter()
 
     # matrix_A =  I - gamma * T
     A.aypx(-gamma,ones)
 
     if timing :
-        timer_step[3] = time.process_time()
+        timer_step[3] = time.perf_counter()
 
     # print('Matrix A assembled', A.size)
     # print(A.getInfo())
@@ -279,7 +279,7 @@ def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,dev
     b.destroy()
 
     if timing :
-        timer_step[4] = time.process_time()
+        timer_step[4] = time.perf_counter()
 
     # Collect all the values across the processors 
     scatter, eta = PETSc.Scatter.toZero(x)
@@ -294,7 +294,7 @@ def eta_petsc(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ks_type,ps_type,verbose=False,dev
         eta = np.zeros(1)
 
     if timing :
-        timer_step[5] = time.process_time()
+        timer_step[5] = time.perf_counter()
 
     if timing :
         total_time = timer_step[-1] - timer_step[0]
@@ -325,25 +325,25 @@ def eta_scipy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device
     timing = False
     if timing :
         timer_step = np.zeros(4)
-        timer_step[0] = time.process_time()
+        timer_step[0] = time.perf_counter()
 
 
     if mpi_rank == 0:
         Tsm_sm_matrix_sparce = sparse.csr_matrix(Tsm_sm_matrix)
         
         if timing :
-            timer_step[1] = time.process_time()
+            timer_step[1] = time.perf_counter()
 
         Tsm_sm_matrix_sparce *= -gamma
         Tsm_sm_matrix_sparce += sparse.eye(M*Ly*Lx)
 
         if timing :
-            timer_step[2] = time.process_time()
+            timer_step[2] = time.perf_counter()
 
         new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0)
 
         if timing :
-            timer_step[3] = time.process_time()
+            timer_step[3] = time.perf_counter()
 
         if verbose :
             print("      Tsm_sm size: ", Tsm_sm_matrix_sparce.nnz, " Memory size: ", Tsm_sm_matrix_sparce.data.nbytes/1e6, " MB")
@@ -379,13 +379,13 @@ def eta_cupy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device=
     timing = False
     if timing :
         timer_step = np.zeros(4)
-        timer_step[0] = time.process_time()
+        timer_step[0] = time.perf_counter()
 
 
     if mpi_rank == 0:
         
         if timing :
-            timer_step[1] = time.process_time()
+            timer_step[1] = time.perf_counter()
     
         Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
 
@@ -393,13 +393,13 @@ def eta_cupy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device=
         rho0_cupy = cp.asarray(rho0)
 
         if timing :
-            timer_step[2] = time.process_time()
+            timer_step[2] = time.perf_counter()
 
         new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
         new_eta = cp.asnumpy(new_eta_cupy)
 
         if timing :
-            timer_step[3] = time.process_time()
+            timer_step[3] = time.perf_counter()
 
         if verbose :
             print("      Tsm_sm size: ", Tsm_sm_matrix_cupy.nnz, " Memory size: ", Tsm_sm_matrix_cupy.data.nbytes/1e6, " MB")
@@ -465,15 +465,15 @@ def data_creation(M,O,Lx,Ly,a_size):
 #-------------------------------------------------------------
 
 def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=eta_scipy_sparce_solve, verbose=False, device='cpu'):
-    """
+        """
     This function should solve the following:
     --> New_eta = (1 - gamma T)^-1 rho
     """
 
-    timing = False
+    timing = True
     if timing :
-        timer_step = np.zeros(4)
-        timer_step[0] = time.process_time()
+        timer_step = np.zeros(5, dtype=np.float64)
+        timer_step[0] = time.perf_counter()
 
     comm = PETSc.COMM_WORLD.tompi4py()
     mpi_rank = PETSc.COMM_WORLD.getRank()
@@ -496,7 +496,7 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
     # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
     #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
     if timing :
-        timer_step[1] = time.process_time()
+        timer_step[1] = time.perf_counter()
 
     # Tsm_sm has size ~ 10^5 x 10^5 or more
     # if mpi_rank == 0:
@@ -508,7 +508,7 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
     Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,A//M,p_a_mu_m_xy)
 
     if timing :
-        timer_step[2] = time.process_time()
+        timer_step[2] = time.perf_counter()
 
     if verbose and mpi_rank == 0:
         print("-"*50)
@@ -526,9 +526,9 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
         print("           Sparse matrix memory size:", Tsm_sm_matrix.data.nbytes/1e6, " MB")
         # plt.imshow(Tsm_sm_matrix.toarray())
         # plt.show()
-        timer_step = time.process_time()
+        timer_step = time.perf_counter()
         Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,A//M,p_a_mu_m_xy)
-        print("Time to build the matrix: ", time.process_time() - timer_step)
+        print("Time to build the matrix: ", time.perf_counter() - timer_step)
         print("-"*50)
 
 
@@ -932,7 +932,7 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
                         continue
                     
                     PETSc.COMM_WORLD.barrier()
-                    t = time.process_time()
+                    t = time.perf_counter()
 
                     try :
                         new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,ksp_type,pc_type,device=device)
@@ -940,7 +940,7 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
                     except :
                         benchmark_ksp_pc[-1].succeed = False
 
-                    benchmark_ksp_pc[-1].time_step[i] = time.process_time() - t
+                    benchmark_ksp_pc[-1].time_step[i] = time.perf_counter() - t
 
                     if benchmark_ksp_pc[-1].succeed :
                         benchmark_ksp_pc[-1].solution_trust *= solution_test(new_eta,Tsm_sm_matrix,rho0,gamma)
@@ -959,13 +959,17 @@ def solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=e
                 PETSc.Sys.Print("{:>12} {:<12}".format(ksp_pc.ksp_type,ksp_pc.pc_type),"Average time: {:.4f} s".format(np.mean(ksp_pc.time_step)),"std dev: {:.4f} s".format(np.std(ksp_pc.time_step)))
 
     elif func_eta == eta_petsc and not test_ksp:
+        if timing :
+            timer_step[3] = time.perf_counter()
         new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,'bcgs','jacobi',device=device)
     else :
+        if timing :
+            timer_step[3] = time.perf_counter()
         if mpi_rank == 0 :
             new_eta = func_eta(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=device)
     
     if timing :
-        timer_step[3] = time.process_time()
+        timer_step[3] = time.perf_counter()
 
     if timing :
         total_time = timer_step[-1] - timer_step[0]
@@ -1074,13 +1078,13 @@ if __name__ == "__main__":
         
         for i in range(runtimes):
             PETSc.COMM_WORLD.barrier()
-            t = time.process_time()
+            t = time.perf_counter()
 
             out_01, out_02 = solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=solver, verbose=False,device=device_sel)
             out_01 = None
             out_02 = None
 
-            times[i] = time.process_time() - t
+            times[i] = time.perf_counter() - t
             PETSc.Sys.Print("*_", end=" ", flush=True)
         
         PETSc.Sys.Print("Average time: {:.4f} s".format(np.mean(times)),"std dev: {:.4f} s".format(np.std(times)))
@@ -1092,9 +1096,9 @@ if __name__ == "__main__":
 
     if mpi_rank == 0:   
         for i in range(runtimes):
-            t = time.process_time()
+            t = time.perf_counter()
             _ = itsol(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, find_range)
-            times[i] = time.process_time() - t
+            times[i] = time.perf_counter() - t
         
         print("Average time: {:.4f} s,".format(np.mean(times)),"std dev: {:.4f} s".format(np.std(times)))
 
@@ -1108,7 +1112,7 @@ if __name__ == "__main__":
 
     for solver, name_solver, device_sel in zip(solvers, name_solvers,device_selector):
         PETSc.COMM_WORLD.barrier()
-        inv_sol, T = solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=solver, verbose=False,device=device_sel)
+        inv_sol, T = solve_eta(pi, PObs_lim, gamma, rho0, Lx, Ly, Lx0, Ly0, find_range,func_eta=solver, verbose=True,device=device_sel)
         PETSc.COMM_WORLD.barrier()
         if mpi_rank == 0:
             PETSc.Sys.Print("Shape {:>12}: {:} max: {:.4f} min: {:.4f}".format(name_solver, inv_sol.shape[0], np.max(inv_sol), np.min(inv_sol)), end=" ", flush=True)  
