@@ -160,7 +160,7 @@ do i=1,(L*M)
     s = mod(i-1,L) +1 
     ix = mod(s -1 , Lx)
     iy = (s-1) / Lx
-    if ( ( ix + 1 - Lx0)**2 + ( iy + 1 - Ly0)**2  .ge. find_range2 ) then
+    if ( ( ix + 1 - Lx0)**2 + ( iy + 1 - Ly0)**2  < find_range2 ) then
         do k = 1, M
             neweta(s+L*(k-1)) = 0.d0
         enddo
