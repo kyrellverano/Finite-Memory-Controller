@@ -22,6 +22,7 @@ class solver_opt:
 
         # Set the algorithm to use
         self.solver_type_eta = 'direct'
+        self.solver_type_eta = 'experimetal'
         self.solver_type_V = 'direct'
 
         # Set the MPI options
@@ -62,6 +63,8 @@ class solver_opt:
             self.use_petsc = True
             self.ksp_type = 'preonly'          
             self.pc_type = 'lu'
+            # self.ksp_type = 'gmres'          
+            # self.pc_type = 'ilu'
             # self.solver_type_eta = 'iter'
             # self.solver_type_V = 'iter'
 
@@ -86,7 +89,6 @@ class solver_opt:
             self.x = None
             self.ones = None
             self.ksp = None
-            
 
         elif solver == 'cupy':
             load_info = load_cupy()
@@ -148,9 +150,219 @@ class solver_opt:
             assert False, 'Solver not recognized'
             return
 
+# ----------------------------------------------------------------------------
+class parameters:
+    def __init__(self):
+        self.agent = parameters_agent()
+        self.env = parameters_enviroment()
+        self.plume = parameters_plume()
+        self.optim = parameters_optimization()
+
+    def set_parameters(self,json_file):
+        self.env.set_values(json_file)
+        self.agent.set_values(json_file,self.env.Lx)
+        self.plume.set_values(json_file,self.env.Lx)
+        self.optim.set_values(json_file)
+
+class parameters_agent:
+    def __init__(self):
+        # Default values
+        self.M : int = 1
+        self.O : int = 2
+        self.max_obs : int = 10
+
+        self.A : int = 0
+        self.actions_move = None
+        self.actions_name = None
+
+        self.act_hdl = None
+
+        self.lr_th : float = 0.001
+        self.cost_move = None
+        self.reward_find : float = 0.0
+        self.gamma = 'auto'
+
+        self.AxM : int = 0
+
+    def set_values(self,json_file,Lx):
+        self.M = json_file.get('M',self.M)
+        self.O = json_file.get('O',self.O)
+        self.max_obs = json_file.get('max_obs',self.max_obs)
+
+        self.A = json_file.get('A',self.A)
+        self.actions_move = json_file.get('actions_move',self.actions_move)
+        self.actions_name = json_file.get('actions_name',self.actions_name)
+
+        self.act_hdl = AgentActions(self.A)
+
+        for i in range(self.A):
+            self.act_hdl.set_action(i,json_file['actions_move'][i],json_file['actions_name'][i])
+    
+        self.reward_find = json_file['reward_find']
+
+        if json_file.get("gamma",self.gamma) == 'auto':
+            self.gamma = 1.0 - 1/10**(Lx//35) * 0.005
+        else:
+            self.gamma = json_file["gamma"]
+
+        self.lr_th = json_file['lr_th']
+
+        self.cost_move = json_file.get('cost_move',1-self.gamma)
+
+        self.AxM = self.A * self.M
+
+class parameters_enviroment:
+    def __init__(self):
+        # Default values
+        self.Lx  : int = 35
+        self.Ly  : int = 60
+        self.Lx0 : int = 0
+        self.Ly0 : int = 50
+
+        self.find_range : int = 1.1
+        self.sigma : int = 4
+
+        self.factor_dim : int = 1
+
+        self.L : int = 0
+
+    def set_values(self,json_file):
+
+        self.factor_dim = json_file.get('factor_dim',self.factor_dim)
+
+        self.Ly  = json_file.get('Ly',self.Ly) * self.factor_dim
+        self.Lx  = json_file.get('Lx',self.Lx) * self.factor_dim
+
+        self.Ly0 = json_file.get('Ly0',self.Ly0) * self.factor_dim
+        self.Lx0 = self.Lx / 2.
+
+        self.find_range = json_file.get('find_range',self.find_range)
+        self.sigma = json_file.get('sigma',self.sigma)
+
+        self.L = self.Lx * self.Ly
+
+class parameters_plume:
+    def __init__(self):
+        # Default values
+        self.coarse : int = 0
+        self.dth    : int = 5
+
+        self.symmetry : int = 1
+        self.replica  : int = 0
+
+        self.D     : float = 50.0
+        self.V     : float = 100.0
+        self.tau   : float = 2000.0
+        self.beta  : int = 5
+
+        self.plume_stat :  str = "Poisson" # "Bernoulli" or "Poisson"
+        self.experimental  : bool = False     # Experimental plume
+        self.adjust_factor  = "auto"    # Factor for the model plume
+
+    def set_values(self,json_file,Lx):
+
+        self.coarse = json_file.get('coarse',self.coarse)
+        self.dth = json_file.get('dth',self.dth)
+
+        self.symmetry = json_file.get('symmetry',self.symmetry)
+        self.replica = json_file.get('replica',self.replica)
+
+        self.D = json_file.get('D',self.D)
+        self.V = json_file.get('V',self.V)
+        self.tau = json_file.get('tau',self.tau)
+        self.beta = json_file.get('beta',self.beta)
+
+        self.plume_stat = json_file.get('plume_stat',self.plume_stat)
+        self.experimental = json_file.get('exp_plume',self.experimental)
+
+        if json_file.get("adjust_factor",self.adjust_factor) == 'auto':
+            self.adjust_factor = Lx/75
+            # self.adjust_factor = 1.0 / self.adjust_factor
+        else:
+            self.adjust_factor = json_file.get('adjust_factor')
+        
+class parameters_optimization:
+    def __init__(self):
+        # Default values
+        self.tol_eta  : float = 1e-8
+        self.tol_Q    : float = 1e-8
+        self.tol_conv : float = 1e-8
+
+        self.Ntot         : int = 1000
+        self.Nprint       : int = 100
+        self.minimum_iter : int = 50
+
+        self.new_policy : bool = True
+        self.unbias     : bool = False
+        self.folder_restart : str = None
+
+    def set_values(self,json_file):
+        self.tol_eta   = json_file.get('tol_eta',self.tol_eta)
+        self.tol_Q     = json_file.get('tol_Q',self.tol_Q)
+        self.tol_conv  = json_file.get('tol_conv',self.tol_conv)
+
+        self.Ntot         = json_file.get('Ntot',self.Ntot)
+        self.Nprint       = json_file.get('Nprint',self.Nprint)
+        self.minimum_iter = json_file.get('minimum_iter',self.minimum_iter)
+
+        self.new_policy = json_file.get('new_policy',self.new_policy)
+        self.unbias     = json_file.get('unbias',self.unbias)
+        self.folder_restart = json_file.get('folder_restart',self.folder_restart)
 
 # ----------------------------------------------------------------------------
 
+def create_output_folder_name(fsc, method, lib_solve_linear_system):
+        name_folder = 'ExpPlume_'
+        name_folder += f'Agent_'
+        name_folder += f'A{fsc.agent.A}'
+        name_folder += f'M{fsc.agent.M}'
+        name_folder += f'O{fsc.agent.O}'
+        name_folder += f'g{fsc.agent.gamma}'
+
+        name_folder += f'_Env_'
+        name_folder += f'Lx{fsc.env.Lx}'
+        name_folder += f'Ly{fsc.env.Ly}'
+
+        name_folder += f'_Plume_'
+        name_folder += f'exp{fsc.plume.experimental}'
+        name_folder += f'sym{fsc.plume.symmetry}'
+        name_folder += f'dth{fsc.plume.dth}'
+
+        name_folder += f'_Opt_'
+        name_folder += f'mth-{method}'
+        name_folder += f'slvr-{lib_solve_linear_system}'
+        name_folder += f'fac-{fsc.env.factor_dim}'
+
+        return name_folder
+
+def print_parameters(fsc,method,lib_solve_linear_system,device):
+    print("-"*50)
+    print("System parameters:")
+    print("Lx: ",fsc.env.Lx,"   Ly: ",fsc.env.Ly,"   M: ",fsc.agent.M,"   O: ",fsc.agent.O,"   Actions: ",fsc.agent.A)
+    print("gamma: ",fsc.agent.gamma,"   lr_th: ",fsc.agent.lr_th, "   find_range: ",fsc.env.find_range)
+    print("-"*50)
+    print("Optimization parameters:")
+    print('method: {}   solver: {}   device: {}'.format(method,lib_solve_linear_system,device))
+    print("Ntot:",fsc.optim.Ntot,"   Nprint:",fsc.optim.Nprint,"   tol_conv:",fsc.optim.tol_conv, "   minimum_step:",fsc.optim.minimum_iter)
+    print("-"*50)
+    # get_max_value(fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.env.find_range, rho0, fsc.agent.gamma)
+    # print("-"*50)
+
+def get_max_value(Lx, Ly, Lx0, Ly0, find_range, rho0, gamma):
+    max_value = []
+    for x in range(Lx):
+        for y in range(Ly):
+
+            if rho0[y*Lx+x] < 1e-10:
+                continue
+            
+            short_path = int(np.abs(x-Lx0) + np.abs(y-Ly0) - find_range)
+            discount = -np.sum([gamma**i * (1.0 - gamma) for i in range(short_path)])
+            max_value.append(discount*rho0[y*Lx+x])
+
+    print("Avg max value: {:.8f}".format(np.sum(max_value)))
+
+# ----------------------------------------------------------------------------
 def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR, alpha=1.0): 
     """
     Returns a diffusion plume with given parameters.
@@ -160,19 +372,36 @@ def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR, alpha=1.0):
     xx, yy = np.meshgrid(spacex, spacey)
     rr = np.sqrt(xx**2 + yy**2)
     lam = np.sqrt(D*tau/(1+V*V*tau/D/4))
-    cplume = aR/(rr+0.01)*np.exp(-rr/lam * alpha -yy*V/2/D *alpha)
+    cplume = aR/(rr* alpha+0.01)*np.exp(-rr/lam * alpha -yy*V/2/D *alpha)
     return cplume
 
-def create_random_Q0(Lx, Ly, Lx0, Ly0, gamma, a_size, M, cost_move, reward_find):
+# def create_random_Q0(Lx, Ly, Lx0, Ly0, gamma, a_size, M, cost_move, reward_find):
+def create_random_Q0(agent, env):
     """
     Returns an approx Q for a random diffusion.
     """
+
+    # ------------------------------------------------------------
+    # Environment parameters
+    Lx = env.Lx   ; Ly = env.Ly
+    Lx0 = env.Lx0 ; Ly0 = env.Ly0
+
+    # Agent parameters
+    gamma = agent.gamma
+    a_size = agent.AxM
+    M = agent.M
+    cost_move = agent.cost_move
+    reward_find = agent.reward_find
+    # ------------------------------------------------------------
+
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
 
     xx, yy = np.meshgrid(spacex, spacey)
     rr = xx**2 + yy**2
-    random_Q0 = (-1/(1-gamma)*cost_move) / (1 + 2/np.abs(rr)) + (1 - 1/ (1 + 2/np.abs(rr)))*reward_find    
+    random_Q0 = (-1/(1-gamma)*cost_move) 
+    random_Q0 /= (1 + 2/np.abs(rr)) 
+    random_Q0 += (1 - 1/ (1 + 2/np.abs(rr)))*reward_find    
     random_Q0 = np.tile(np.repeat(random_Q0, a_size), M).reshape(-1)
     return random_Q0
 
@@ -232,7 +461,34 @@ def average_reward(Tsm_sm_matrix, M, Lx, Ly, cost_move,source_as_zero):
 
     return RR
 
-def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True,source_as_zero=None,plume_factor=1.0):
+# def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True,source_as_zero=None,plume_factor=1.0):
+def create_PObs_RR(agent, env, plume, data, source_as_zero=None):
+
+    # ------------------------------------------------------------
+    # Environment parameters
+    Lx = env.Lx   ; Ly = env.Ly
+    Lx0 = env.Lx0 ; Ly0 = env.Ly0
+    find_range = env.find_range
+
+    # Agent parameters
+    M = agent.M ; A = agent.A
+    diff_obs = agent.O
+    cost_move = agent.cost_move
+    reward_find = agent.reward_find
+    max_obs = agent.max_obs
+
+    # Plume parameters
+    cmax = plume.beta
+    V = plume.V
+    D = plume.D
+    tau = plume.tau
+    plume_stat = plume.plume_stat
+    exp_plume = plume.experimental
+    adjust_factor = 1.0 / plume.adjust_factor
+
+    print('plume_factor',adjust_factor)  
+    # ------------------------------------------------------------
+
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
 
@@ -243,7 +499,7 @@ def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax
     if exp_plume:
         cplume = create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data)
     else:
-        cplume = create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, cmax, alpha=plume_factor)
+        cplume = create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, cmax, alpha=adjust_factor)
     # ------------------  
     cplume = cplume[:,:].reshape(-1)  
     PObs = np.zeros((max_obs, Lx * Ly))
@@ -266,20 +522,38 @@ def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax
     PObs_lim[:] = PObs_2[:diff_obs]
     PObs_lim[-1] += np.sum(PObs_2[diff_obs:], axis=0)
 
-    # if A == 4:
-    #   RR = fast_mult.rewards_four_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
-    # elif A == 5:
-    #   RR = fast_mult.rewards_five_2d_walls(PObs, M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
-    # if A == 4:
-    #     RR = fast_mult.rewards_four_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
+    RR_np = average_reward(None, M, Lx, Ly, cost_move, source_as_zero)
+
+    if A == 4:
+        RR = fast_mult.rewards_four_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
+    else :
+        RR = RR_np
+        
     # elif A == 5:
     #     RR = fast_mult.rewards_five_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
 
-    RR_np = average_reward(None, M, Lx, Ly, cost_move, source_as_zero)
 
-    return np.abs(PObs_lim), RR_np, np.abs(PObs), RR_np
+    return np.abs(PObs_lim), RR, np.abs(PObs), RR_np
 
-def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, find_range):
+# def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, find_range):
+def iterative_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta0):
+    """
+    This function should solve the following:
+    --> New_eta = (1 - gamma T)^-1 rho
+    """
+    # ------------------------------------------------------------
+    # Environment parameters
+    Lx = env.Lx   ; Ly = env.Ly
+    Lx0 = env.Lx0 ; Ly0 = env.Ly0
+    find_range = env.find_range
+
+    # Agent parameters
+    gamma = agent.gamma
+
+    # Optimization parameters
+    tol = optim.tol_eta
+    # ------------------------------------------------------------
+
     max_it = 10000
     eta = eta0.copy()
     new_eta = np.zeros(eta.shape)
@@ -300,6 +574,7 @@ def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, 
         # if (i%1 == 0):
         delta = np.max((new_eta-eta)*(new_eta-eta))
         if (delta < tol2): 
+            print('Converged in {} iterations'.format(i))
             return new_eta
         #if ((i+1)%1000 == 0):
         #    print('eta: i {}, delta {}'.format(i, delta))
@@ -307,8 +582,111 @@ def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, 
     print('NOT CONVERGED - eta')
     return new_eta
 
+def iterative_sp_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta, source_as_zero, verbose=False, solver = None):
+    """
+    This function should solve the following:
+    --> New_eta = (1 - gamma T)^-1 rho
+    """
+    # ------------------------------------------------------------
+    # Environment parameters
+    Lx = env.Lx   ; Ly = env.Ly
+    Lx0 = env.Lx0 ; Ly0 = env.Ly0
+    find_range = env.find_range
+
+    # Agent parameters
+    act_hdl = agent.act_hdl
+    gamma = agent.gamma
+
+    # Optimization parameters
+    tol = optim.tol_eta
+    # ------------------------------------------------------------
+
+    print('iterative_sp_solve_eta Experimental')
+
+    timing = True
+    if timing:
+        timer_step = np.zeros(3)
+        timer_step[0] = time.time()
+
+
+    comm = solver.mpi_comm
+    mpi_rank = solver.mpi_rank
+    mpi_size = solver.mpi_size
+
+    if mpi_rank == 0:
+        # O = Observations, M = Memory, A = Actions
+        O, M, A = pi.shape
+        # L = Dimension of the environment
+        L = Lx * Ly
+        new_eta = np.zeros(M*L)
+        
+        # PY has size ~ 10^5
+        PY = PObs_lim.reshape(O, M, Ly, Lx)
+        # PY has size ~ 10^2
+        PAMU = pi.reshape(O, M, M, A//M)
+        # PAMU = softmax( np.zeros((O, M, M, A//M)), 2)
+
+        
+        p_a_mu_m_xy = np.einsum( 'omyx, omna -> anmyx', PY, PAMU)
+        # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
+        #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
+
+        # Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
+        # Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
+        Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
+        action_size = act_hdl.A
+
+    else:
+        Tsm_sm_matrix = None
+        action_size = None
+        M = None
+
+    Tsm_sm_matrix_sp = Tsm_sm_matrix.tocsr()
+
+    max_it = 10000
+    eta = eta.copy()
+    new_eta = np.zeros(eta.shape)
+
+    tol2 = 0.
+    if (gamma < 1.):
+        tol2 = tol/(1-gamma)*tol/(1-gamma)
+    else:
+        tol2 = tol*tol*1000000
+    for i in range(max_it):
+
+        new_eta = rho0 + gamma * Tsm_sm_matrix_sp.dot(eta)
+        # if (i%1 == 0):
+        delta = np.max((new_eta-eta)*(new_eta-eta))
+        if (delta < tol2): 
+            print('Converged in {} iterations'.format(i))
+            return new_eta, Tsm_sm_matrix
+        #if ((i+1)%1000 == 0):
+        #    print('eta: i {}, delta {}'.format(i, delta))
+        eta = new_eta.copy()
+    print('NOT CONVERGED - eta')
+    return new_eta , Tsm_sm_matrix
+
+
 # @profile
-def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_range, cost_move):
+# def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_range, cost_move):
+def iterative_solve_Q(agent, env, optim, pi, PObs_lim, RR, Q0):
+    """
+    This function should solve the following:
+    --> New_Q = RR + gamma T Q
+    """
+    # ------------------------------------------------------------
+    # Environment parameters
+    Lx = env.Lx   ; Ly = env.Ly
+    Lx0 = env.Lx0 ; Ly0 = env.Ly0
+    find_range = env.find_range
+
+    # Agent parameters
+    gamma = agent.gamma
+
+    # Optimization parameters
+    tol = optim.tol_Q
+    # ------------------------------------------------------------
+    
     max_it = 10000
     Q = Q0
     O, M, A = pi.shape
@@ -328,6 +706,7 @@ def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_r
             delta = (new_Q-Q)
             delta = np.max(delta*delta)
             if ( delta < tol2): 
+                print('Converged in {} iterations'.format(i))
                 return new_Q
         #if ((i+1)%1000 == 0):
         #    print('Q: i {}, delta {}, tol^2 {}'.format(i, delta, tol2))
@@ -360,11 +739,22 @@ class AgentActions():
         return self.actions_names[action_index]
 
 # @profile
-def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_range, act_hdl, source_as_zero, verbose=False, solver = None):
+# def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_range, act_hdl, source_as_zero, verbose=False, solver = None):
+def linear_solve_eta(agent, env, pi, PObs_lim, rho0, eta, source_as_zero, verbose=False, solver = None):
     """
     This function should solve the following:
     --> New_eta = (1 - gamma T)^-1 rho
     """
+    # ------------------------------------------------------------
+    # Environment parameters
+    Lx = env.Lx   ; Ly = env.Ly
+    Lx0 = env.Lx0 ; Ly0 = env.Ly0
+    find_range = env.find_range
+
+    # Agent parameters
+    act_hdl = agent.act_hdl
+    gamma = agent.gamma
+    # ------------------------------------------------------------
 
     timing = True
     if timing:
@@ -394,6 +784,7 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_rang
         # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
         #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
 
+        # Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
         # Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
         Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
         action_size = act_hdl.A
@@ -448,9 +839,7 @@ def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_rang
         else :
             new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=solver.device, verbose=verbose)
 
-        # solver.solver_type_eta = 'iter'
-    
-
+        # solver.solver_type_eta = 'iter'    
 
     if timing:
         timer_step[2] = time.time()
@@ -528,13 +917,23 @@ def get_next_state(state : np.ndarray, action : int, act_hdl : AgentActions, mov
     return state
 
 # @profile
-def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, source_as_zero, reward, V, verbose=False, solver=None):
+# def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, source_as_zero, reward, V, verbose=False, solver=None):
+def linear_solve_Q(agent, env, Tsm_sm_matrix, source_as_zero, reward, V, verbose=False, solver=None):
     """
     This function computes the Q function from the reward and the transition matrix
     """
+    # ------------------------------------------------------------
+    # Environment parameters
+    Lx = env.Lx   ; Ly = env.Ly
+
+    # Agent parameters
+    M = agent.M ; A = agent.A
+    act_hdl = agent.act_hdl
+    gamma = agent.gamma
+    cost_move = agent.cost_move
+    # ------------------------------------------------------------
 
     if solver.mpi_rank == 0:
-        cost_move = 1.0 - gamma
 
         reward = reward.reshape(M*Ly*Lx)
 
@@ -611,6 +1010,8 @@ def get_value(Q, pi, PObs_lim, L, rho0):
     value = np.sum(true_pi*Q[:L*a_size])
     return value
 
+
+
 from types import new_class
 def one_step(a, x, y, Lx, Ly, act_hdl):
     
@@ -635,12 +1036,13 @@ def one_step(a, x, y, Lx, Ly, act_hdl):
     #     newy = max(y-1,0)
     return m, newx, newy
 
-def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, act_hdl):
+def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, Tmax, PObs, rho0, act_hdl, progress_bar=False):
+
+    if progress_bar:
+        from tqdm import tqdm
+
   
-    fixed_time = False
-    if gamma>1: 
-        fixed_time = True
-        Tmax = gamma
+    fixed_time = True if Tmax > 1 else False
     
     O, M, a_size = pi.shape
     m = 0
@@ -650,15 +1052,23 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, act_hdl
     done = False
     trj=np.zeros((1,5))
     r = 0
-    ret = 0
+    success = 0
     r = np.random.choice(PObs.shape[0], p=PObs[:,s])
     o = r
     #if r > O-1: o = O-1
     #print(pi.shape)
     s0 = Lx0-1 + (Ly0-2)*Lx
-    t = 0 
+    time_steps = 0 
+
+    if progress_bar:
+        pbar = tqdm(total=Tmax)
+
     while (not done):
-        t += 1
+
+        if progress_bar:
+            pbar.update(1)
+
+        time_steps += 1
         a = np.random.choice(a_size, p=pi[o,m,:])
         #print('m{}, o{}, a{}, x{}, y{}'.format( m,o, a, x,y))
         #print('s, PObs[s]', s, PObs[:,s])
@@ -669,14 +1079,17 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, gamma, PObs, rho0, act_hdl
         o = r
         #if r > O-1: o = O-1
         found = False
-        if (x+1-Lx0)**2 + (y+1-Ly0)**2 < find_range**2: found = True
-        if found:
-            ret += 1
+        if (x+1-Lx0)**2 + (y+1-Ly0)**2 < find_range**2: 
+            found = True
+            success     = 1
             done = True
             #print('Found!')
-        if fixed_time and t == Tmax:
+        if fixed_time and time_steps == Tmax:
             done = True
         #if np.random.rand()<1-gamma:
             #done = True
         trj = np.append(trj, [[a,x,y,m,r]], axis=0)
-    return trj, ret, t
+
+    if progress_bar:
+        pbar.close()
+    return trj, success, time_steps

@@ -669,6 +669,36 @@ def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
 
     return Tsm_sm_sp
 
+def iterative_solver_sp(T, x, b, gamma, tol, max_iter=10, convergence=1e-5, verbose = False, device='cpu'):
+    """
+    Solve linear system using scipy sparce with jacobi method
+    """
+
+    x_sp = x.copy()
+    success = False
+
+    if (gamma < 1.):
+        tol2 = tol/(1-gamma)*tol/(1-gamma)
+    else:
+        tol2 = tol*tol*1000000
+
+    # Start the iterative method
+    for i in range(max_iter):
+
+        new_x_sp = b + gamma * T.dot(x_sp)
+        
+        delta = new_x_sp - x_sp
+        delta = delta * delta
+
+        if (delta.max() < tol2): 
+            print('Converged in {} iterations'.format(i))
+            success = True
+            return new_x_sp, success
+
+        x_sp = new_x_sp.copy()
+    
+    return new_x_sp, success
+
 def load_scipy():
 
     eta_petsc = None
@@ -681,6 +711,9 @@ def load_scipy():
         Tsm_sm_matrix_sparce = sparse.csr_matrix(Tsm_sm_matrix)
         rho0_sparse = sparse.csr_matrix(rho0).T
             
+        # new_eta = iterative_solver_sp(Tsm_sm_matrix_sparce, rho0_sparse, rho0_sparse, gamma, 1e-8, max_iter=10000, convergence=1e-5, verbose = False, device='cpu')
+
+
         Tsm_sm_matrix_sparce *= -gamma
         Tsm_sm_matrix_sparce += sparse.eye(M*Ly*Lx)
 
@@ -696,7 +729,7 @@ def load_scipy():
         Solve linear system using scipy sparce with jacobi method
         """
 
-        timing = False
+        timing = True
         if timing:
             timer_step = np.zeros(4)
             timer_step[0] = time.time()
@@ -741,7 +774,7 @@ def load_scipy():
         print("Iterative method")
 
         # Preconditioned
-        ilu = sparse.linalg.spilu(Tsm_sm_matrix_sparce)
+        ilu = sparse.linalg.spilu(Tsm_sm_matrix_sparce, fill_factor=15,drop_tol=1e-6)
         M = sparse.linalg.LinearOperator(Tsm_sm_matrix_sparce.shape, ilu.solve)
         
         
@@ -750,7 +783,7 @@ def load_scipy():
         if timing:
             timer_step[2] = time.time()
 
-        new_eta,info = sparse.linalg.gmres(Tsm_sm_matrix_sparce, rho0, x0=eta, tol=1e-5, M=M)
+        new_eta,info = sparse.linalg.gmres(Tsm_sm_matrix_sparce, rho0, x0=eta, tol=1e-8, M=M)
         
         # new_eta = solver(rho0)
         # info = 0 
@@ -776,7 +809,7 @@ def load_scipy():
                 diff_time[i] = timer_step[i] - timer_step[i-1]
 
             timer_step = diff_time / total_time
-            print("Rank:",mpi_rank,
+            print("Rank: 0",
                 "Set T sparse:",   "{:.2f}".format(timer_step[1]),
                 "Precondition:", "{:.2f}".format(timer_step[2]),
                 "Solver:", "{:.2f}".format(timer_step[3]),
@@ -995,6 +1028,7 @@ def load_petsc():
             ksp.setUp()
             solver.ksp = ksp
         
+        solver.ksp.setUp()
         solver.ksp.solve(solver.b, solver.x)
 
         # A.destroy()
@@ -1074,9 +1108,7 @@ def load_petsc():
 
     return eta_petsc, eta_petsc, mpi_rank, mpi_size, mpi_comm, free_memory
 
-
-
-def load_cupy():
+def load_cupy():        
     """
     Load cupy and cupyx
     """
@@ -1093,9 +1125,66 @@ def load_cupy():
     
     eta_petsc = None
 
-    cp.cuda.Device(0).use()
+    # cp.cuda.Device(0).use()
 
-    # ----------------------------------------------------------------------------
+    # 
+    #----------------------------------------------------------------------------
+    def eta_cupy_sparse_solve_iter(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,device='gpu',verbose=False):
+        """
+        Solve linear system using cupy scipy sparce
+        """
+        print('Cupy iter')
+        timing = False
+        if timing :
+            timer_step = np.zeros(4)
+            timer_step[0] = time.time()
+
+        Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
+
+        if timing :
+            timer_step[1] = time.time()
+
+        to_invert = cusparse.eye(M*Ly*Lx) - gamma * Tsm_sm_matrix_cupy
+        rho0_cupy = cp.asarray(rho0)
+        eta_cupy = cp.asarray(eta)
+
+        if timing :
+            timer_step[2] = time.time()
+
+        # new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
+        # set the precondioioner as ilu
+        M = cusparse.linalg.spilu(to_invert,fill_factor=1)
+        # Solve the system with mgres with M precondiotioner
+        new_eta_cupy =  cusparse.linalg.gmres(to_invert, rho0_cupy, x0=eta_cupy, tol=1e-08,  M=M)
+
+        new_eta = cp.asnumpy(new_eta_cupy)
+
+
+        if verbose :
+            print("      Tsm_sm size: ", Tsm_sm_matrix_cupy.nnz, " Memory size: ", Tsm_sm_matrix_cupy.data.nbytes/1e6, " MB")
+            print("        rho0 size: ", rho0.shape, " Memory size: ", rho0.nbytes/1e6, " MB")
+            print("Total memory size: ", (Tsm_sm_matrix_cupy.data.nbytes + rho0.nbytes)/1e6, " MB")
+        if timing :
+            timer_step[3] = time.time()
+
+            total_time = timer_step[-1] - timer_step[0]
+
+            diff_time = np.zeros(timer_step.size)
+            diff_time[0] = timer_step[0]
+
+            for i in range(1,timer_step.size):
+                diff_time[i] = timer_step[i] - timer_step[i-1]
+
+            timer_step = diff_time / total_time
+            print("Rank:",mpi_rank,
+                "To csr:","{:.2f}".format(timer_step[1]),
+                "Compute A:",  "{:.2f}".format(timer_step[2]),
+                "Solve:",      "{:.2f}".format(timer_step[3]),
+                "Total:",      "{:.2f}".format(total_time))
+
+        return new_eta
+
+
     def eta_cupy_sparse_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='gpu',verbose=False):
         """
         Solve linear system using cupy scipy sparce
@@ -1145,7 +1234,7 @@ def load_cupy():
 
         return new_eta
 
-    return eta_cupy_sparse_solve, eta_cupy_sparse_solve
+    return eta_cupy_sparse_solve, eta_cupy_sparse_solve_iter
 
 def load_numpy_inv():
     """
