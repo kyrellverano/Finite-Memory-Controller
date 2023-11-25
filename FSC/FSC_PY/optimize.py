@@ -55,7 +55,8 @@ parser.add_argument('--output_dir', type=str,
                     help='Input file with parameters')
 
 
-args = parser.parse_args()
+# args = parser.parse_args()
+args, unknown_args = parser.parse_known_args()
 input_file = args.input_file
 lib_solve_linear_system = args.lib_solver
 method = args.method
@@ -170,12 +171,13 @@ def optimize(fsc):
                                    yxs)
         source_as_zero = np.array([i for i in yx_founds])
 
-        # Create the observation and rewards
-        eta = np.zeros(fsc.env.L * fsc.agent.M)
-        V   = np.zeros(fsc.env.L * fsc.agent.M)
+        eta = np.ones(fsc.env.L * fsc.agent.M)
+        V   = np.ones(fsc.env.L * fsc.agent.M)
 
+        # Create the observation and rewards
         PObs_lim, RR, PObs, RR_np = utils.create_PObs_RR(fsc.agent, fsc.env, fsc.plume, data=data, source_as_zero=source_as_zero)
         PObs_lim = np.abs(PObs_lim)
+        
 
         # Create the initial positions of the agent
         # Initial density is only at y=0, proportional to signal probability
@@ -198,7 +200,7 @@ def optimize(fsc):
                 th[1:,:,2::fsc.agent.A] -= 0.5
 
             # Create a new eta and Q
-            eta = np.ones(eta.shape)/(fsc.env.L * fsc.agent.M)/(1-fsc.agent.gamma)
+            eta *= (1-fsc.agent.gamma)/(fsc.env.L * fsc.agent.M)
             Q = utils.create_random_Q0(fsc.agent, fsc.env) 
         else:
             # Load previous policy from file
@@ -209,6 +211,16 @@ def optimize(fsc):
             # Load eta and Q
             Q = np.loadtxt(folder_restart + '/file_Q.out')
             eta = np.loadtxt(folder_restart + '/file_eta.out')
+
+        # # V = V.reshape(M, Ly, Lx)
+        # V = V.reshape(fsc.agent.M, fsc.env.Ly, fsc.env.Lx)
+        # # Q = Q.reshape(Ly, Lx, M, A)
+        # Q = Q.reshape(fsc.agent.M,fsc.env.Ly, fsc.env.Lx, fsc.agent.M, fsc.agent.A)
+        # for m in range(fsc.agent.M):
+        #     V[m,:,:] = (Q[0,:,:,m,0] + fsc.agent.cost_move) / fsc.agent.gamma
+
+        # V = V.flatten()
+        # Q = Q.flatten()
 
         # Create the initial policy
         pi = softmax(th, axis=2)
@@ -268,7 +280,7 @@ def optimize(fsc):
     #     lr_values = np.concatenate((lr_values,lr_descent(lr_rate[i-1],lr_rate[i],np.arange(steps[i-1],steps[i]))))
 
 
-    # lr_values = np.ones(fsc.optim.Ntot)*fsc.agent.lr_th
+    lr_values = np.ones(fsc.optim.Ntot)*fsc.agent.lr_th
 
 
     # set steps for choose iter or direct
@@ -304,9 +316,9 @@ def optimize(fsc):
 
         if method_select == 'direct':
             # Direct linear system solution
-            eta, T = utils.linear_solve_eta(fsc.agent, fsc.env, pi, PObs_lim, rho0, eta,source_as_zero,solver=solver,verbose=verbose_eta)
+            eta, T = utils.linear_solve_eta(fsc.agent, fsc.env, fsc.optim, eta, rho0, pi, PObs_lim, source_as_zero,solver=solver,verbose=verbose_eta)
             time_eta = time.time()
-            V, Q = utils.linear_solve_Q(fsc.agent, fsc.env, T, source_as_zero, RR_np, V, solver=solver)
+            V, Q = utils.linear_solve_Q(fsc.agent, fsc.env, fsc.optim, T, V, RR_np, source_as_zero, solver=solver)
             time_Q = time.time()
 
         if method_select == 'iter':
@@ -316,15 +328,6 @@ def optimize(fsc):
 
             time_eta = time.time()
             Q = utils.iterative_solve_Q(fsc.agent, fsc.env, fsc.optim, pi, PObs_lim, RR, Q)
-            time_Q = time.time()
-
-        if method_select == 'experimental':
-            print('method: {}'.format(method_select))
-            # Iterative solutions of linear system
-            eta, T = utils.iterative_sp_solve_eta(fsc.agent, fsc.env, fsc.optim, pi, PObs_lim, rho0, eta,source_as_zero,solver=solver,verbose=verbose_eta)
-
-            time_eta = time.time()
-            V, Q = utils.linear_solve_Q(fsc.agent, fsc.env, T, source_as_zero, RR_np, V, solver=solver)
             time_Q = time.time()
 
         # Check convergence 
@@ -349,7 +352,6 @@ def optimize(fsc):
 
             # Reset value for new iteration afterwards
             lr_th = lr_values[t]
-            print('lr_th: {}'.format(lr_th))
             
             th += grad * lr_th / np.max(np.abs(grad)) # (t / Ntot + 0.5) #rescaled gradient
             th -= np.max(th, axis=2, keepdims=True)
@@ -358,6 +360,9 @@ def optimize(fsc):
         
         # Print and check convergence
         if (t % fsc.optim.Nprint == 0) and (mpi_rank == 0):
+
+            print('lr_th: {:.5f}'.format(lr_th))
+
             time_step[ t % fsc.optim.Nprint] = time.time() - time_start
             print('step:{:5d} |  current value: {:.7f} | ratio value : {:.7f}'.format(t, value, ratio_change), end=' | ')
             # Print times
@@ -366,6 +371,8 @@ def optimize(fsc):
             print('avg time:{:10.3f}'.format(np.mean(time_step)), end=' | ')
             print('std dev:{:10.3f}'.format(np.std(time_step)), end=' | ')
             print('time total:{:10.3f}'.format(np.sum(time_step)),flush=True)
+
+            print('-'*77)
             
             # Print values to file
             f.write('current value: {} @ time:{} \n'.format(value, t))

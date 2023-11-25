@@ -22,7 +22,6 @@ class solver_opt:
 
         # Set the algorithm to use
         self.solver_type_eta = 'direct'
-        self.solver_type_eta = 'experimetal'
         self.solver_type_V = 'direct'
 
         # Set the MPI options
@@ -34,9 +33,11 @@ class solver_opt:
         self.use_petsc = False
         self.device = None
 
+        # Varaibles to build T
         self.Tmatrix_index = None
         self.Tmatrix_p_index = None
         self.Tsm_sm_sp = None
+        self.Tsm_sm_zero = None
 
     def set_lib_solver(self,solver):
         """
@@ -375,7 +376,6 @@ def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR, alpha=1.0):
     cplume = aR/(rr* alpha+0.01)*np.exp(-rr/lam * alpha -yy*V/2/D *alpha)
     return cplume
 
-# def create_random_Q0(Lx, Ly, Lx0, Ly0, gamma, a_size, M, cost_move, reward_find):
 def create_random_Q0(agent, env):
     """
     Returns an approx Q for a random diffusion.
@@ -461,7 +461,6 @@ def average_reward(Tsm_sm_matrix, M, Lx, Ly, cost_move,source_as_zero):
 
     return RR
 
-# def create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, cmax, max_obs, diff_obs, A, V, data, D=50, tau=2000, plume_stat="Poisson", exp_plume=True,source_as_zero=None,plume_factor=1.0):
 def create_PObs_RR(agent, env, plume, data, source_as_zero=None):
 
     # ------------------------------------------------------------
@@ -523,6 +522,7 @@ def create_PObs_RR(agent, env, plume, data, source_as_zero=None):
     PObs_lim[-1] += np.sum(PObs_2[diff_obs:], axis=0)
 
     RR_np = average_reward(None, M, Lx, Ly, cost_move, source_as_zero)
+    RR_np = RR_np.reshape(M * Ly * Lx)
 
     if A == 4:
         RR = fast_mult.rewards_four_2d(M, Lx, Ly, Lx0+1, Ly0+1, find_range, cost_move, reward_find, max_obs)
@@ -535,7 +535,6 @@ def create_PObs_RR(agent, env, plume, data, source_as_zero=None):
 
     return np.abs(PObs_lim), RR, np.abs(PObs), RR_np
 
-# def iterative_solve_eta(pi, PObs_lim, gamma, rho0, eta0, tol, Lx, Ly, Lx0, Ly0, find_range):
 def iterative_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta0):
     """
     This function should solve the following:
@@ -582,93 +581,7 @@ def iterative_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta0):
     print('NOT CONVERGED - eta')
     return new_eta
 
-def iterative_sp_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta, source_as_zero, verbose=False, solver = None):
-    """
-    This function should solve the following:
-    --> New_eta = (1 - gamma T)^-1 rho
-    """
-    # ------------------------------------------------------------
-    # Environment parameters
-    Lx = env.Lx   ; Ly = env.Ly
-    Lx0 = env.Lx0 ; Ly0 = env.Ly0
-    find_range = env.find_range
-
-    # Agent parameters
-    act_hdl = agent.act_hdl
-    gamma = agent.gamma
-
-    # Optimization parameters
-    tol = optim.tol_eta
-    # ------------------------------------------------------------
-
-    print('iterative_sp_solve_eta Experimental')
-
-    timing = True
-    if timing:
-        timer_step = np.zeros(3)
-        timer_step[0] = time.time()
-
-
-    comm = solver.mpi_comm
-    mpi_rank = solver.mpi_rank
-    mpi_size = solver.mpi_size
-
-    if mpi_rank == 0:
-        # O = Observations, M = Memory, A = Actions
-        O, M, A = pi.shape
-        # L = Dimension of the environment
-        L = Lx * Ly
-        new_eta = np.zeros(M*L)
-        
-        # PY has size ~ 10^5
-        PY = PObs_lim.reshape(O, M, Ly, Lx)
-        # PY has size ~ 10^2
-        PAMU = pi.reshape(O, M, M, A//M)
-        # PAMU = softmax( np.zeros((O, M, M, A//M)), 2)
-
-        
-        p_a_mu_m_xy = np.einsum( 'omyx, omna -> anmyx', PY, PAMU)
-        # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
-        #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
-
-        # Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
-        # Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
-        Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
-        action_size = act_hdl.A
-
-    else:
-        Tsm_sm_matrix = None
-        action_size = None
-        M = None
-
-    Tsm_sm_matrix_sp = Tsm_sm_matrix.tocsr()
-
-    max_it = 10000
-    eta = eta.copy()
-    new_eta = np.zeros(eta.shape)
-
-    tol2 = 0.
-    if (gamma < 1.):
-        tol2 = tol/(1-gamma)*tol/(1-gamma)
-    else:
-        tol2 = tol*tol*1000000
-    for i in range(max_it):
-
-        new_eta = rho0 + gamma * Tsm_sm_matrix_sp.dot(eta)
-        # if (i%1 == 0):
-        delta = np.max((new_eta-eta)*(new_eta-eta))
-        if (delta < tol2): 
-            print('Converged in {} iterations'.format(i))
-            return new_eta, Tsm_sm_matrix
-        #if ((i+1)%1000 == 0):
-        #    print('eta: i {}, delta {}'.format(i, delta))
-        eta = new_eta.copy()
-    print('NOT CONVERGED - eta')
-    return new_eta , Tsm_sm_matrix
-
-
 # @profile
-# def iterative_solve_Q(pi, PObs_lim, gamma, RR, Q0, tol, Lx, Ly, Lx0, Ly0, find_range, cost_move):
 def iterative_solve_Q(agent, env, optim, pi, PObs_lim, RR, Q0):
     """
     This function should solve the following:
@@ -739,8 +652,7 @@ class AgentActions():
         return self.actions_names[action_index]
 
 # @profile
-# def linear_solve_eta(pi, PObs_lim, gamma, rho0, eta, Lx, Ly, Lx0, Ly0, find_range, act_hdl, source_as_zero, verbose=False, solver = None):
-def linear_solve_eta(agent, env, pi, PObs_lim, rho0, eta, source_as_zero, verbose=False, solver = None):
+def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero, verbose=False, solver = None):
     """
     This function should solve the following:
     --> New_eta = (1 - gamma T)^-1 rho
@@ -754,6 +666,9 @@ def linear_solve_eta(agent, env, pi, PObs_lim, rho0, eta, source_as_zero, verbos
     # Agent parameters
     act_hdl = agent.act_hdl
     gamma = agent.gamma
+
+    # Optimization parameters
+    tol = optim.tol_eta
     # ------------------------------------------------------------
 
     timing = True
@@ -761,49 +676,35 @@ def linear_solve_eta(agent, env, pi, PObs_lim, rho0, eta, source_as_zero, verbos
         timer_step = np.zeros(3)
         timer_step[0] = time.time()
 
-
-    comm = solver.mpi_comm
     mpi_rank = solver.mpi_rank
-    mpi_size = solver.mpi_size
 
     if mpi_rank == 0:
         # O = Observations, M = Memory, A = Actions
         O, M, A = pi.shape
-        # L = Dimension of the environment
-        L = Lx * Ly
-        new_eta = np.zeros(M*L)
         
         # PY has size ~ 10^5
         PY = PObs_lim.reshape(O, M, Ly, Lx)
         # PY has size ~ 10^2
         PAMU = pi.reshape(O, M, M, A//M)
         # PAMU = softmax( np.zeros((O, M, M, A//M)), 2)
-
         
         p_a_mu_m_xy = np.einsum( 'omyx, omna -> anmyx', PY, PAMU)
         # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
         #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
 
-        # Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
+        # Tsm_sm_matrix_org = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
         # Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
         Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
+        # Tsm_sm_matrix = build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
         action_size = act_hdl.A
+
+        # diff = Tsm_sm_matrix_org - Tsm_sm_matrix
+        # print("diff T matrix:",diff.sum())
 
     else:
         Tsm_sm_matrix = None
         action_size = None
         M = None
-
-    # Tsm_sm has size ~ 10^5 x 10^5 or more
-    # if mpi_rank == 0:
-    #     Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,A//M,p_a_mu_m_xy)
-    # else:
-    #     Tsm_sm_matrix = None
-    
-    # Tsm_sm_matrix = comm.bcast(Tsm_sm_matrix, root=0)
-
-    # Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,A//M,p_a_mu_m_xy)
-
 
     if timing:
         timer_step[1] = time.time()
@@ -812,7 +713,6 @@ def linear_solve_eta(agent, env, pi, PObs_lim, rho0, eta, source_as_zero, verbos
         print("-"*50)
         print("Solver info:")
         print("pi shape:",pi.shape)
-        print("new_eta shape:",new_eta.shape)
         print("PY shape:",PY.shape, "PAMU shape:",PAMU.shape)
         print("p_a_mu_m_xy shape:",p_a_mu_m_xy.shape)
         
@@ -827,17 +727,16 @@ def linear_solve_eta(agent, env, pi, PObs_lim, rho0, eta, source_as_zero, verbos
 
     if solver.solver_type_eta == 'iter':
         if solver.use_petsc:
-            # new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,'bcgs','jacobi',device=solver.device)
-            new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,solver.ksp_type,solver.pc_type,solver,device=solver.device,verbose=verbose)
+            new_eta = solver.function_solver_iter(Tsm_sm_matrix, eta, rho0, gamma, action_size, M, Lx, Ly, solver.ksp_type, solver.pc_type, solver, device=solver.device,verbose=verbose)
         else :
             new_eta = solver.function_solver_iter(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,device=solver.device,verbose=verbose)
 
     if solver.solver_type_eta == 'direct':
         if solver.use_petsc:
-            # new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,action_size,M,Lx,Ly,rho0,'bcgs','jacobi',device=solver.device)
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,solver.ksp_type,solver.pc_type,solver,device=solver.device, verbose=verbose)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,tol,solver.ksp_type,solver.pc_type,solver,device=solver.device, verbose=verbose)
         else :
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device=solver.device, verbose=verbose)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly ,tol, device=solver.device, verbose=verbose)
+
 
         # solver.solver_type_eta = 'iter'    
 
@@ -853,9 +752,9 @@ def linear_solve_eta(agent, env, pi, PObs_lim, rho0, eta, source_as_zero, verbos
 
         timer_step = diff_time / total_time
         print("Rank:",mpi_rank,
-            "Set T:",   "{:.2f}".format(timer_step[1]),
-            "Solve T:", "{:.2f}".format(timer_step[2]),
-            "Total:",   "{:.2f}".format(total_time))
+            "Set T:",   "{:.2f} %".format(timer_step[1]),
+            "Solve eta:", "{:.2f} %".format(timer_step[2]),
+            "Total:",   "{:.4f}".format(total_time))
 
 
     return new_eta, Tsm_sm_matrix
@@ -917,8 +816,7 @@ def get_next_state(state : np.ndarray, action : int, act_hdl : AgentActions, mov
     return state
 
 # @profile
-# def linear_solve_Q(Tsm_sm_matrix, Lx, Ly, M, A, gamma,find_range, act_hdl, source_as_zero, reward, V, verbose=False, solver=None):
-def linear_solve_Q(agent, env, Tsm_sm_matrix, source_as_zero, reward, V, verbose=False, solver=None):
+def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zero, verbose=False, solver=None):
     """
     This function computes the Q function from the reward and the transition matrix
     """
@@ -931,20 +829,29 @@ def linear_solve_Q(agent, env, Tsm_sm_matrix, source_as_zero, reward, V, verbose
     act_hdl = agent.act_hdl
     gamma = agent.gamma
     cost_move = agent.cost_move
+
+    # Optimization parameters
+    tol = optim.tol_Q 
     # ------------------------------------------------------------
+
+    timing = True
+    if timing:
+        timer_step = np.zeros(4)
+        timer_step[0] = time.time()
 
     if solver.mpi_rank == 0:
 
         reward = reward.reshape(M*Ly*Lx)
-
-        Tsm_sm_matrix = Tsm_sm_matrix.transpose()
+        Tsm_sm_matrix = Tsm_sm_matrix_sp.transpose()
+        print(type(Tsm_sm_matrix_sp))
 
         action_size = act_hdl.A
     else:
         action_size = None
-        V = None
         Q = None
 
+    if timing:
+        timer_step[1] = time.time()
     if solver.solver_type_V == 'iter':
         if solver.use_petsc:
             V = solver.function_solver_iter(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,solver.ksp_type,solver.pc_type,solver,device=solver.device)
@@ -953,11 +860,14 @@ def linear_solve_Q(agent, env, Tsm_sm_matrix, source_as_zero, reward, V, verbose
 
     if solver.solver_type_V == 'direct':
         if solver.use_petsc:
-            V = solver.function_solver_direct(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,solver.ksp_type,solver.pc_type,solver,device=solver.device)
+            V = solver.function_solver_direct(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,tol,solver.ksp_type,solver.pc_type,solver,device=solver.device)
         else :
-            V = solver.function_solver_direct(Tsm_sm_matrix,gamma,M,Lx,Ly,reward,device=solver.device)
+            V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, M, Lx, Ly, tol, device=solver.device)
 
         # solver.solver_type_V = 'iter'
+
+    if timing:
+        timer_step[2] = time.time()
 
     if solver.mpi_rank == 0:
         # V = gamma * V 
@@ -978,6 +888,24 @@ def linear_solve_Q(agent, env, Tsm_sm_matrix, source_as_zero, reward, V, verbose
 
         Q = np.repeat(Q[np.newaxis,:,:,:,:], M,axis=0)
         Q = Q.flatten()
+
+    if timing:
+        timer_step[3] = time.time()
+        total_time = timer_step[-1] - timer_step[0]
+
+        diff_time = np.zeros(timer_step.size)
+        diff_time[0] = timer_step[0].copy()
+
+        for i in range(1,timer_step.size):
+            diff_time[i] = timer_step[i] - timer_step[i-1]
+
+        timer_step = diff_time / total_time
+        print("Rank:",solver.mpi_rank,
+            "Transpose T:",   "{:.2f} %".format(timer_step[1]),
+            "Solve V:",   "{:.2f} %".format(timer_step[2]),
+            "Compute Q:", "{:.2f} %".format(timer_step[3]),
+            "Total:",   "{:.4f}".format(total_time))
+
                 
     return V.flatten(), Q
 
@@ -1009,8 +937,6 @@ def get_value(Q, pi, PObs_lim, L, rho0):
     true_pi = np.sum(pi_L_M0 * PObs_rep[:, :], axis=0)
     value = np.sum(true_pi*Q[:L*a_size])
     return value
-
-
 
 from types import new_class
 def one_step(a, x, y, Lx, Ly, act_hdl):

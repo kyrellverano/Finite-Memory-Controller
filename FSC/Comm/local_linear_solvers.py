@@ -376,7 +376,6 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
 
     return Tsm_sm_sp
 
-
 def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
     
     timing = False
@@ -597,7 +596,7 @@ def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
 # @profile
 def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver,verbose=0):
 
-    timing = False
+    timing = True
     if timing:
         timer_step = np.zeros(5)
         timer_step[0] = time.time()
@@ -637,17 +636,23 @@ def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
         timer_step[3] = time.time()
 
     # Delete the rows and columns that have been set to zero depending on the distance to the initial position
-    indexes = np.zeros(6,dtype=int)
-    for yx_found in source_as_zero:
-        for im in range(M):
-            indexes[0] = indexes[3] = im
-            indexes[1] = indexes[4] = yx_found[0]
-            indexes[2] = indexes[5] = yx_found[1]
-            indexes_mat = index_six_to_two(indexes,M,Ly,Lx)
-            # rows to set zero
-            Tsm_sm_sp[indexes_mat[0],:] = 0
-            # columns to set zero
-            Tsm_sm_sp[:,indexes_mat[1]] = 0
+    if solver.Tsm_sm_zero is None:
+        solver.Tsm_sm_zero = []
+        indexes = np.zeros(6,dtype=int)
+        for yx_found in source_as_zero:
+            for im in range(M):
+                indexes[0] = indexes[3] = im
+                indexes[1] = indexes[4] = yx_found[0]
+                indexes[2] = indexes[5] = yx_found[1]
+                indexes_mat = index_six_to_two(indexes,M,Ly,Lx)
+                solver.Tsm_sm_zero.append(indexes_mat)
+        
+        solver.Tsm_sm_zero = np.array(solver.Tsm_sm_zero)
+
+    # rows to set zero
+    Tsm_sm_sp[solver.Tsm_sm_zero[:,0],:] = 0.0
+    # columns to set zero
+    Tsm_sm_sp[:,solver.Tsm_sm_zero[:,1]] = 0.0
 
     if timing:
         timer_step[4] = time.time()
@@ -660,19 +665,143 @@ def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             diff_time[i] = timer_step[i] - timer_step[i-1]
 
         timer_step = diff_time / total_time
-        print("Rank:",0,
+        print("Set T ---",
+            "Rank:",0,
             "Set index",   "{:.2f}".format(timer_step[1]),
             "Fill_policy:", "{:.2f}".format(timer_step[2]),
             "Fill matrix id:", "{:.2f}".format(timer_step[3]),
             "Zeros", "{:.2f}".format(timer_step[4]),
-            "Total:",   "{:.2f}".format(total_time))
+            "Total:",   "{:.4f}".format(total_time))
+        
 
     return Tsm_sm_sp
 
-def iterative_solver_sp(T, x, b, gamma, tol, max_iter=10, convergence=1e-5, verbose = False, device='cpu'):
+def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver,verbose=0):
+
+    timing = True
+    if timing:
+        timer_step = np.zeros(5)
+        timer_step[0] = time.time()
+
+    # Compute only once the indexes of the matrix Tsm_sm_sp
+    if solver.Tmatrix_index is None and solver.Tmatrix_p_index is None:
+        solver.Tmatrix_p_index, solver.Tmatrix_index  = set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=verbose)
+
+        entries = solver.Tmatrix_p_index.shape[0]
+        solver.Tmatrix_index = solver.Tmatrix_index.reshape(entries,2)
+
+    if timing:
+        timer_step[1] = time.time()
+
+    # Reshape the arrays of indexes to be able to create the sparse matrix
+
+    full_policy_act = p_a_mu_m_xy[solver.Tmatrix_p_index[:,0],solver.Tmatrix_p_index[:,1],solver.Tmatrix_p_index[:,2],solver.Tmatrix_p_index[:,3],solver.Tmatrix_p_index[:,4]]
+
+    if verbose >= 1:
+        print("full_policy_act size:",len(full_policy_act),"full_index_matrix size:",len(full_index_matrix))
+        print("full_policy_act",full_policy_act.shape,"full_index_matrix",full_index_matrix.shape)
+
+    if timing:
+        timer_step[2] = time.time()
+    # Create the sparse matrix and fill it with the values
+
+    if solver.Tsm_sm_sp is None:
+        full_index_matrix = solver.Tmatrix_index
+        solver.Tsm_sm_sp = sparse.coo_matrix((full_policy_act, (full_index_matrix[:,0], full_index_matrix[:,1])), shape=(M*Ly*Lx, M*Ly*Lx), dtype=np.double)
+    else :
+        solver.Tsm_sm_sp.data = full_policy_act
+
+    # Convert to lil format to be able to set rows and columns to zero
+    Tsm_sm_sp = solver.Tsm_sm_sp.copy() #.tolil()
+    Tsm_sm_sp = Tsm_sm_sp.tocsc()
+
+    if timing:
+        timer_step[3] = time.time()
+
+    # Delete the rows and columns that have been set to zero depending on the distance to the initial position
+    if solver.Tsm_sm_zero is None:
+        solver.Tsm_sm_zero = []
+        indexes = np.zeros(6,dtype=int)
+        for yx_found in source_as_zero:
+            for im in range(M):
+                indexes[0] = indexes[3] = im
+                indexes[1] = indexes[4] = yx_found[0]
+                indexes[2] = indexes[5] = yx_found[1]
+                indexes_mat = index_six_to_two(indexes,M,Ly,Lx)
+                solver.Tsm_sm_zero.append(indexes_mat)
+        
+        solver.Tsm_sm_zero = np.array(solver.Tsm_sm_zero)
+
+        # find intersection between Tsm_sm_zero and Tmatrix_index  
+        
+        A = solver.Tmatrix_index
+        nrows, ncols = A.shape
+        dtype={'names':['f{}'.format(i) for i in range(ncols)],
+            'formats':ncols * [A.dtype]}
+        
+        N_Tsm_sm = solver.Tsm_sm_sp.shape[0]
+        dim_T = np.arange(N_Tsm_sm)
+
+        Tsm_sm_zero_index = np.array([],dtype=int).reshape(0,2)
+        for zero in solver.Tsm_sm_zero:
+
+            zero_x = np.full(N_Tsm_sm, zero[0])
+            zero_row = np.concatenate((zero_x[:,None],dim_T[:,None]),axis=1)
+
+            zero_y = np.full(N_Tsm_sm, zero[1])
+            zero_col = np.concatenate((dim_T[:,None],zero_y[:,None]),axis=1)
+        
+            C_row = np.intersect1d(A.view(dtype), zero_row.view(dtype))
+            C_col = np.intersect1d(A.view(dtype), zero_col.view(dtype))
+
+            C_row = C_row.view(A.dtype).reshape(-1, ncols) 
+            C_col = C_col.view(A.dtype).reshape(-1, ncols)
+
+            Tsm_sm_zero_index = np.concatenate((Tsm_sm_zero_index,C_row,C_col),axis=0)
+
+        Tsm_sm_zero_index = np.unique(Tsm_sm_zero_index,axis=0)
+
+        solver.Tsm_sm_zero = Tsm_sm_zero_index
+
+    # for index in solver.Tsm_sm_zero:
+    #     Tsm_sm_sp[index[0],index[1]] = 0.0
+    # Tsm_sm_sp[index[:,0],index[:,1]] = 0.0
+    Tsm_sm_sp[solver.Tsm_sm_zero[:,0],solver.Tsm_sm_zero[:,1]] = 0.0
+
+    # Tsm_sm_sp.eliminate_zeros()
+    # Tsm_sm_sp.tolil()
+
+    if timing:
+        timer_step[4] = time.time()
+        total_time = timer_step[-1] - timer_step[0]
+
+        diff_time = np.zeros(timer_step.size)
+        diff_time[0] = timer_step[0].copy()
+
+        for i in range(1,timer_step.size):
+            diff_time[i] = timer_step[i] - timer_step[i-1]
+
+        timer_step = diff_time / total_time
+        print( "Set T ---",
+            "Rank:",0,
+            "Set index",   "{:.2f}".format(timer_step[1]),
+            "Fill_policy:", "{:.2f}".format(timer_step[2]),
+            "Fill matrix id:", "{:.2f}".format(timer_step[3]),
+            "Zeros", "{:.2f}".format(timer_step[4]),
+            "Total:",   "{:.4f}".format(total_time))
+        
+
+    return Tsm_sm_sp
+
+
+def iterative_solver_sp(T, x, b, gamma, tol, max_iter=7, verbose = False, device='cpu'):
     """
     Solve linear system using scipy sparce with jacobi method
     """
+
+    # max_iter = 0
+    if max_iter == 0:
+        return x, False
 
     x_sp = x.copy()
     success = False
@@ -691,8 +820,8 @@ def iterative_solver_sp(T, x, b, gamma, tol, max_iter=10, convergence=1e-5, verb
         delta = delta * delta
 
         if (delta.max() < tol2): 
-            print('Converged in {} iterations'.format(i))
             success = True
+            print('Converged in {} iterations'.format(i))
             return new_x_sp, success
 
         x_sp = new_x_sp.copy()
@@ -704,27 +833,66 @@ def load_scipy():
     eta_petsc = None
 
     # @profile
-    def eta_scipy_sparce_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
+    def eta_scipy_sparse_solve(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly, tol, verbose=False, device='cpu'):
         """
         Solve linear system using scipy sparce
         """
-        Tsm_sm_matrix_sparce = sparse.csr_matrix(Tsm_sm_matrix)
-        rho0_sparse = sparse.csr_matrix(rho0).T
+        timing = True
+        if timing:
+            timer_step = np.zeros(3)
+            timer_step[0] = time.time()
+
+        if sparse.isspmatrix_csr(Tsm_sm_matrix):
+            Tsm_sm_matrix_sparse = Tsm_sm_matrix
+        else:
+            Tsm_sm_matrix_sparse = Tsm_sm_matrix.tocsr()
+
+        # Tsm_sm_matrix_sparse = Tsm_sm_matrix
+        # rho0_sparse = sparse.csr_array(rho0).T
+        # eta_sparse = sparse.csr_array(eta).T
+        rho0_sparse = rho0
+        eta_sparse = eta.copy()
             
-        # new_eta = iterative_solver_sp(Tsm_sm_matrix_sparce, rho0_sparse, rho0_sparse, gamma, 1e-8, max_iter=10000, convergence=1e-5, verbose = False, device='cpu')
+        if timing:
+            timer_step[1] = time.time()
+
+        iter_success = False
+        if not tol == -1:
+            new_eta, iter_success = iterative_solver_sp(Tsm_sm_matrix_sparse, eta_sparse, rho0_sparse, gamma, tol)
+
+        if not iter_success:
+
+            Tsm_sm_matrix_sparse *= -gamma
+            Tsm_sm_matrix_sparse += sparse.eye(M*Ly*Lx)
+
+            sparse.linalg.use_solver(useUmfpack=False)
+            new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparse,rho0_sparse,use_umfpack=False)
+            
+            # new_eta = sparse.linalg.lsqr(Tsm_sm_matrix_sparce,rho0, x0=eta)[0]
+            # new_eta, info = sparse.linalg.bicg(Tsm_sm_matrix_sparce,rho0)
 
 
-        Tsm_sm_matrix_sparce *= -gamma
-        Tsm_sm_matrix_sparce += sparse.eye(M*Ly*Lx)
+        if timing:
+            timer_step[2] = time.time()
+            total_time = timer_step[-1] - timer_step[0]
 
-        sparse.linalg.use_solver(useUmfpack=False)
-        # new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0_sparse)
-        new_eta = sparse.linalg.spsolve(Tsm_sm_matrix_sparce,rho0_sparse,use_umfpack=False)
-        # new_eta, info = sparse.linalg.bicg(Tsm_sm_matrix_sparce,rho0)
+            diff_time = np.zeros(timer_step.size)
+            diff_time[0] = timer_step[0].copy()
+
+            for i in range(1,timer_step.size):
+                diff_time[i] = timer_step[i] - timer_step[i-1]
+
+            timer_step = diff_time / total_time
+            print('Scipy ---',
+                "Rank: 0",
+                "Set T sparse:",   "{:.2f}".format(timer_step[1]),
+                "Solver:", "{:.2f}".format(timer_step[2]),
+                "Total:",   "{:.4f}".format(total_time))
+
+
         return new_eta
 
-
-    def eta_scipy_sparce_solve_jacobi(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
+    def eta_scipy_sparse_solve_jacobi(Tsm_sm_matrix,eta,gamma,M,Lx,Ly,rho0,verbose=False,device='cpu'):
         """
         Solve linear system using scipy sparce with jacobi method
         """
@@ -819,7 +987,7 @@ def load_scipy():
         
         return new_eta
 
-    return eta_scipy_sparce_solve,eta_scipy_sparce_solve_jacobi
+    return eta_scipy_sparse_solve,eta_scipy_sparse_solve_jacobi
 
 def load_petsc():
     # ----------------------------------------------------------------------------
@@ -847,7 +1015,7 @@ def load_petsc():
     # ----------------------------------------------------------------------------
 
     # @profile
-    def eta_petsc(Tsm_sm_matrix,eta,gamma,act,M,Lx,Ly,rho0,ks_type,ps_type,solver,verbose=False,device='cpu'):
+    def eta_petsc(Tsm_sm_matrix,eta,gamma,act,M,Lx,Ly,rho0,tol,ks_type,ps_type,solver,verbose=False,device='cpu'):
         """
         Solve linear system for eta using PETSc
         """
@@ -867,7 +1035,25 @@ def load_petsc():
         mpi_comm = PETSc.COMM_WORLD.tompi4py()
 
         if mpi_rank == 0:
+            # Tsm_sm_matrix = Tsm_sm_matrix.copy()
             Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
+        #     rho0_sparse = sparse.csr_array(rho0).T
+        #     eta_sparse = sparse.csr_array(eta).T
+            
+        #     new_eta, iter_success = iterative_solver_sp(Tsm_sm_matrix, eta_sparse, rho0_sparse, gamma, tol)
+            
+        # else:
+        #     new_eta = None
+        #     iter_success = None
+        
+        # if mpi_size > 1:
+        #     iter_success = mpi_comm.bcast(iter_success, root=0)
+        #     new_eta = mpi_comm.bcast(new_eta, root=0)
+        
+        # if iter_success:
+        #     return new_eta.toarray().flatten()
+
+
 
         if solver.A is None:
             solver.Tsm_sm_sp_petsc = mpi_comm.bcast(Tsm_sm_matrix, root=0)
@@ -895,17 +1081,17 @@ def load_petsc():
             # rho0 = mpi_comm.bcast(rho0, root=0)
 
 
-        # Get the maximum number of non zeros values per row for Tsm_sm
-        count_non_zeros_in_row = np.ones(mat_size,dtype=np.int32) * act * M
-        count_non_zeros_in_row[0] -= M
-        count_non_zeros_in_row[-1] -= M
-
         # PETSc.COMM_WORLD.barrier()
         if timing :
             timer_step[1] = time.time()
 
         if solver.A is None:
         # if True:
+            # Get the maximum number of non zeros values per row for Tsm_sm
+            count_non_zeros_in_row = np.ones(mat_size,dtype=np.int32) * act * M
+            count_non_zeros_in_row[0] -= M
+            count_non_zeros_in_row[-1] -= M
+
             # Create PETSc matrix   
             A = PETSc.Mat()
             A.create(comm=PETSc.COMM_WORLD)
@@ -935,6 +1121,7 @@ def load_petsc():
         # ------------------------------------------------
         """
 
+        print('PETSC -->',type(Tsm_sm_matrix))
         Tsm_sm_matrix = solver.Tsm_sm_sp_petsc  
         rstart, rend = solver.A.getOwnershipRange()
 
@@ -1016,7 +1203,7 @@ def load_petsc():
             ksp.setType(ks_type)
 
             ksp.getPC().setType(ps_type)
-            ksp.setTolerances(rtol=1e-10)
+            ksp.setTolerances(rtol=tol)
 
             ksp.setFromOptions()
 
@@ -1059,7 +1246,7 @@ def load_petsc():
         # broadcast eta to all the processors
         eta = mpi_comm.bcast(eta, root=0)
 
-        if timing :
+        if timing and (mpi_rank in [0,1,mpi_size/2,mpi_size-1]):
             timer_step[6] = time.time()
             
             total_time = timer_step[-1] - timer_step[0]
@@ -1071,7 +1258,8 @@ def load_petsc():
                 diff_time[i] = timer_step[i] - timer_step[i-1]
 
             timer_step = diff_time / total_time
-            print("Rank:",mpi_rank,
+            print( "Petsc ---",
+                "Rank:",mpi_rank,
                 "Get row nnz:","{:.2f}".format(timer_step[1]),
                 "Fill A:",     "{:.2f}".format(timer_step[2]),
                 "Compute A:",  "{:.2f}".format(timer_step[3]),
@@ -1185,35 +1373,45 @@ def load_cupy():
         return new_eta
 
 
-    def eta_cupy_sparse_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='gpu',verbose=False):
+    def eta_cupy_sparse_solve(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly, tol,device='gpu',verbose=False):
         """
         Solve linear system using cupy scipy sparce
         """
 
-        timing = False
+        timing = True
         if timing :
             timer_step = np.zeros(4)
             timer_step[0] = time.time()
 
         Tsm_sm_matrix_cupy = cusparse.csr_matrix(Tsm_sm_matrix)
+        rho0_cupy = cp.asarray(rho0)
+        eta_cupy = cp.asarray(eta)
 
         if timing :
             timer_step[1] = time.time()
 
-        to_invert = cusparse.eye(M*Ly*Lx) - gamma * Tsm_sm_matrix_cupy
-        rho0_cupy = cp.asarray(rho0)
+        new_eta_cupy, iter_success = iterative_solver_sp(Tsm_sm_matrix_cupy, eta_cupy, rho0_cupy, gamma, tol)
+
+        if not iter_success:
+
+            to_invert = cusparse.eye(M*Ly*Lx) - gamma * Tsm_sm_matrix_cupy
+
+            
+            new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
+            
+            # new_eta_cupy, info =  cusparse.linalg.gmres(to_invert, rho0_cupy, x0=eta_cupy, tol=tol)
+            # if info != 0 :
+            #     print("info:",info)
+
+        new_eta = cp.asnumpy(new_eta_cupy)
 
         if timing :
             timer_step[2] = time.time()
 
-        new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
-        new_eta = cp.asnumpy(new_eta_cupy)
-
-
         if verbose :
             print("      Tsm_sm size: ", Tsm_sm_matrix_cupy.nnz, " Memory size: ", Tsm_sm_matrix_cupy.data.nbytes/1e6, " MB")
-            print("        rho0 size: ", rho0.shape, " Memory size: ", rho0.nbytes/1e6, " MB")
-            print("Total memory size: ", (Tsm_sm_matrix_cupy.data.nbytes + rho0.nbytes)/1e6, " MB")
+            print("        rho0 size: ", rho0.shape, " Memory size: ", rho0_cupy.nbytes/1e6, " MB")
+            print("Total memory size: ", (Tsm_sm_matrix_cupy.data.nbytes + rho0_cupy.nbytes)/1e6, " MB")
         if timing :
             timer_step[3] = time.time()
 
@@ -1226,7 +1424,7 @@ def load_cupy():
                 diff_time[i] = timer_step[i] - timer_step[i-1]
 
             timer_step = diff_time / total_time
-            print("Rank:",mpi_rank,
+            print("Cupy | Rank: 0",
                 "To csr:","{:.2f}".format(timer_step[1]),
                 "Compute A:",  "{:.2f}".format(timer_step[2]),
                 "Solve:",      "{:.2f}".format(timer_step[3]),
