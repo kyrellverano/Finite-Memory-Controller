@@ -374,6 +374,18 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             "Zeros:", "{:.2f}".format(timer_step[7]),
             "Total:",   "{:.2f}".format(total_time))
 
+    print('*'*50)
+    print('Tsm_sm_2',1)
+    Tsm_sm_matrix = Tsm_sm_sp.copy().tocsr()
+    col = Tsm_sm_matrix.indices
+    row = Tsm_sm_matrix.indptr
+    data = Tsm_sm_matrix.data
+    print(col[0:10])
+    print(row[0:10])
+    print(data[0:10])
+    print('*'*50)
+
+
     return Tsm_sm_sp
 
 def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
@@ -673,6 +685,22 @@ def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             "Zeros", "{:.2f}".format(timer_step[4]),
             "Total:",   "{:.4f}".format(total_time))
         
+    print('*'*50)
+    # Tsm_sm_sp = Tsm_sm_sp.copy().tocsr()
+    print('Tsm_sm_3',1)
+    Tsm_sm_matrix = Tsm_sm_sp.copy().tocsr()
+    col = Tsm_sm_matrix.indices
+    row = Tsm_sm_matrix.indptr
+    data = Tsm_sm_matrix.data
+    print(col[0:10])
+    print(row[0:10])
+    print(data[0:10])
+
+    print('id:',id(Tsm_sm_sp))
+    print('*'*50)
+
+        
+
 
     return Tsm_sm_sp
 
@@ -712,8 +740,7 @@ def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
         solver.Tsm_sm_sp.data = full_policy_act
 
     # Convert to lil format to be able to set rows and columns to zero
-    Tsm_sm_sp = solver.Tsm_sm_sp.copy() #.tolil()
-    Tsm_sm_sp = Tsm_sm_sp.tocsc()
+    Tsm_sm_sp = solver.Tsm_sm_sp.copy().tocsr() #.tolil()
 
     if timing:
         timer_step[3] = time.time()
@@ -789,6 +816,21 @@ def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             "Fill matrix id:", "{:.2f}".format(timer_step[3]),
             "Zeros", "{:.2f}".format(timer_step[4]),
             "Total:",   "{:.4f}".format(total_time))
+
+    print('*'*50)
+    # Tsm_sm_sp = Tsm_sm_sp.copy().tocsr()
+    print('Tsm_sm_4',1)
+    Tsm_sm_matrix = Tsm_sm_sp
+    col = Tsm_sm_matrix.indices
+    row = Tsm_sm_matrix.indptr
+    data = Tsm_sm_matrix.data
+    print(col[0:10])
+    print(row[0:10])
+    print(data[0:10])
+
+    print('id:',id(Tsm_sm_sp))
+    print('*'*50)
+
         
 
     return Tsm_sm_sp
@@ -799,7 +841,7 @@ def iterative_solver_sp(T, x, b, gamma, tol, max_iter=7, verbose = False, device
     Solve linear system using scipy sparce with jacobi method
     """
 
-    # max_iter = 0
+    max_iter = 0
     if max_iter == 0:
         return x, False
 
@@ -826,7 +868,7 @@ def iterative_solver_sp(T, x, b, gamma, tol, max_iter=7, verbose = False, device
 
         x_sp = new_x_sp.copy()
     
-    return new_x_sp, success
+    return x, success
 
 def load_scipy():
 
@@ -843,9 +885,9 @@ def load_scipy():
             timer_step[0] = time.time()
 
         if sparse.isspmatrix_csr(Tsm_sm_matrix):
-            Tsm_sm_matrix_sparse = Tsm_sm_matrix
+            Tsm_sm_matrix_sparse = Tsm_sm_matrix.copy() 
         else:
-            Tsm_sm_matrix_sparse = Tsm_sm_matrix.tocsr()
+            Tsm_sm_matrix_sparse = Tsm_sm_matrix.copy().tocsr()
 
         # Tsm_sm_matrix_sparse = Tsm_sm_matrix
         # rho0_sparse = sparse.csr_array(rho0).T
@@ -1015,7 +1057,7 @@ def load_petsc():
     # ----------------------------------------------------------------------------
 
     # @profile
-    def eta_petsc(Tsm_sm_matrix,eta,gamma,act,M,Lx,Ly,rho0,tol,ks_type,ps_type,solver,verbose=False,device='cpu'):
+    def eta_petsc(Tsm_sm_matrix_sp,eta,rho0,gamma,act,M,Lx,Ly,tol,ks_type,ps_type,solver,verbose=False,device='cpu'):
         """
         Solve linear system for eta using PETSc
         """
@@ -1036,7 +1078,7 @@ def load_petsc():
 
         if mpi_rank == 0:
             # Tsm_sm_matrix = Tsm_sm_matrix.copy()
-            Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
+            Tsm_sm_matrix = sparse.csr_matrix(Tsm_sm_matrix_sp)
         #     rho0_sparse = sparse.csr_array(rho0).T
         #     eta_sparse = sparse.csr_array(eta).T
             
@@ -1056,7 +1098,7 @@ def load_petsc():
 
 
         if solver.A is None:
-            solver.Tsm_sm_sp_petsc = mpi_comm.bcast(Tsm_sm_matrix, root=0)
+            solver.Tsm_sm_sp_petsc = mpi_comm.bcast(Tsm_sm_matrix_sp, root=0)
             solver.var_list = mpi_comm.bcast([gamma,act,M], root=0)
 
         gamma,act,M = solver.var_list
@@ -1066,6 +1108,7 @@ def load_petsc():
 
         if mpi_rank  == 0:
             bcast_list = np.concatenate((eta,rho0,Tsm_sm_matrix.data))
+            solver.Tsm_sm_sp_petsc.data = Tsm_sm_matrix.data
         else:
             bcast_list = None
         if mpi_size > 1:
@@ -1121,13 +1164,15 @@ def load_petsc():
         # ------------------------------------------------
         """
 
-        print('PETSC -->',type(Tsm_sm_matrix))
+        # print('PETSC -->',type(Tsm_sm_matrix))
+        # print(Tsm_sm_matrix.data[0:10])
         Tsm_sm_matrix = solver.Tsm_sm_sp_petsc  
         rstart, rend = solver.A.getOwnershipRange()
 
         indptr = Tsm_sm_matrix.indptr[rstart:rend+1]-Tsm_sm_matrix.indptr[rstart]
         indices = Tsm_sm_matrix.indices[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
         data = Tsm_sm_matrix.data[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
+        # print('data',data[0:10])
         solver.A.setValuesCSR(indptr, indices, data,addv=False)
         # indices_slice = np.s_[Tsm_sm_matrix.indptr[rstart]:Tsm_sm_matrix.indptr[rend]]
 
@@ -1203,7 +1248,10 @@ def load_petsc():
             ksp.setType(ks_type)
 
             ksp.getPC().setType(ps_type)
-            ksp.setTolerances(rtol=tol)
+            if tol == -1 :
+                ksp.setTolerances(rtol=1.0e-10)
+            else:
+                ksp.setTolerances(rtol=tol)
 
             ksp.setFromOptions()
 

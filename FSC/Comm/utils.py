@@ -199,7 +199,7 @@ class parameters_agent:
         for i in range(self.A):
             self.act_hdl.set_action(i,json_file['actions_move'][i],json_file['actions_name'][i])
     
-        self.reward_find = json_file['reward_find']
+        self.reward_find = json_file.get('reward_find',self.reward_find)
 
         if json_file.get("gamma",self.gamma) == 'auto':
             self.gamma = 1.0 - 1/10**(Lx//35) * 0.005
@@ -692,14 +692,44 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
         # T [ s'm'  sm] = sum_a, mu p(s'm' | sm a mu) p(a mu | sm)
         #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
 
-        # Tsm_sm_matrix_org = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
-        # Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
-        Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
-        # Tsm_sm_matrix = build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
-        action_size = act_hdl.A
+        # Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
+        # Tsm_sm_matrix_org = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
+        # print('Original')
+        # print(type(Tsm_sm_matrix_org))
+        # Tsm_sm_matrix_org = Tsm_sm_matrix_org.copy().tocsr()
+        # print(type(Tsm_sm_matrix_org))
+        # col = Tsm_sm_matrix_org.indices
+        # row = Tsm_sm_matrix_org.indptr
+        # data = Tsm_sm_matrix_org.data
+        # print(col[0:10])
+        # print(row[0:10])
+        # print(data[0:10])
+        # print('%'*50)
+
+        # Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
+
+        Tsm_sm_matrix = build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
+        # print('New')
+        # print(id(Tsm_sm_matrix))
+        # print(type(Tsm_sm_matrix))
+        # # # Tsm_sm_matrix = Tsm_sm_matrix.transpose()
+        # # Tsm_sm_matrix = Tsm_sm_matrix.tocoo()
+        # # print(type(Tsm_sm_matrix))
+        # col = Tsm_sm_matrix.indices
+        # row = Tsm_sm_matrix.indptr
+        # data = Tsm_sm_matrix.data
+        # print(col[0:10])
+        # print(row[0:10])
+        # print(data[0:10])
+        # # # Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
+        # print('%'*50)
+
 
         # diff = Tsm_sm_matrix_org - Tsm_sm_matrix
         # print("diff T matrix:",diff.sum())
+
+
+        action_size = act_hdl.A
 
     else:
         Tsm_sm_matrix = None
@@ -733,9 +763,24 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
 
     if solver.solver_type_eta == 'direct':
         if solver.use_petsc:
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix,eta,gamma,action_size,M,Lx,Ly,rho0,tol,solver.ksp_type,solver.pc_type,solver,device=solver.device, verbose=verbose)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, action_size, M, Lx, Ly, tol, solver.ksp_type,solver.pc_type, solver, device=solver.device, verbose=verbose)
         else :
             new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly ,tol, device=solver.device, verbose=verbose)
+
+        # print('After')
+        # print(id(Tsm_sm_matrix))
+        # print(type(Tsm_sm_matrix))
+        # # # Tsm_sm_matrix = Tsm_sm_matrix.transpose()
+        # # Tsm_sm_matrix = Tsm_sm_matrix.tocoo()
+        # # print(type(Tsm_sm_matrix))
+        # col = Tsm_sm_matrix.indices
+        # row = Tsm_sm_matrix.indptr
+        # data = Tsm_sm_matrix.data
+        # print(col[0:10])
+        # print(row[0:10])
+        # print(data[0:10])
+        # # # Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
+        # print('%'*50)
 
 
         # solver.solver_type_eta = 'iter'    
@@ -842,13 +887,55 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
     if solver.mpi_rank == 0:
 
         reward = reward.reshape(M*Ly*Lx)
+        Tsm_sm_matrix_tmp = Tsm_sm_matrix_sp.copy()
+        Tsm_sm_matrix_tmp = Tsm_sm_matrix_tmp.tocoo()
+
         Tsm_sm_matrix = Tsm_sm_matrix_sp.transpose()
-        print(type(Tsm_sm_matrix_sp))
+        Tsm_sm_matrix = Tsm_sm_matrix.tocsr().copy()
+
+
+
+        Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_sp.transpose()
+        # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.transpose().tocoo()
+        Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.tocoo()
+
+        colA = Tsm_sm_matrix_tmp.col
+        rowA = Tsm_sm_matrix_tmp.row
+        dataA = Tsm_sm_matrix_tmp.data
+
+        colB = Tsm_sm_matrix_tmp2.col
+        rowB = Tsm_sm_matrix_tmp2.row
+        dataB = Tsm_sm_matrix_tmp2.data
+
+        print('colA',colA[0:10])
+        print('colB',colB[0:10])
+        diff = colA - colB
+        print('diff col',diff.sum())
+
+        print('rowA',rowA[0:10])
+        print('rowB',rowB[0:10])
+        diff = rowA - rowB
+        print('diff row',diff.sum())
+
+        print('dataA',dataA[0:10])
+        print('dataB',dataB[0:10])
+        diff = dataA - dataB
+        print('diff data',diff.sum())
+
+        diff = Tsm_sm_matrix_tmp - Tsm_sm_matrix_tmp2
+        print('diff',diff.sum())
+
+
+
+        print(type(Tsm_sm_matrix))
+        print('T',Tsm_sm_matrix.data[0:10])
 
         action_size = act_hdl.A
     else:
+        Tsm_sm_matrix = None
         action_size = None
         Q = None
+
 
     if timing:
         timer_step[1] = time.time()
@@ -860,9 +947,11 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
 
     if solver.solver_type_V == 'direct':
         if solver.use_petsc:
-            V = solver.function_solver_direct(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,tol,solver.ksp_type,solver.pc_type,solver,device=solver.device)
+            V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, action_size, M, Lx, Ly, tol, solver.ksp_type, solver.pc_type, solver, device=solver.device)
         else :
             V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, M, Lx, Ly, tol, device=solver.device)
+        print('V',V)
+
 
         # solver.solver_type_V = 'iter'
 

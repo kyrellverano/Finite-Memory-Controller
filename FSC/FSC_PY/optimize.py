@@ -173,6 +173,7 @@ def optimize(fsc):
 
         eta = np.ones(fsc.env.L * fsc.agent.M)
         V   = np.ones(fsc.env.L * fsc.agent.M)
+        # V   = np.zeros(fsc.env.L * fsc.agent.M)
 
         # Create the observation and rewards
         PObs_lim, RR, PObs, RR_np = utils.create_PObs_RR(fsc.agent, fsc.env, fsc.plume, data=data, source_as_zero=source_as_zero)
@@ -211,6 +212,7 @@ def optimize(fsc):
             # Load eta and Q
             Q = np.loadtxt(folder_restart + '/file_Q.out')
             eta = np.loadtxt(folder_restart + '/file_eta.out')
+            
 
         # # V = V.reshape(M, Ly, Lx)
         # V = V.reshape(fsc.agent.M, fsc.env.Ly, fsc.env.Lx)
@@ -402,6 +404,7 @@ def optimize(fsc):
     if mpi_rank == 0:
         np.savetxt(name_folder + '/file_theta.out', th.reshape(-1))
         np.savetxt(name_folder + '/file_Q.out', Q.reshape(-1))
+        np.savetxt(name_folder + '/file_V.out', V.reshape(-1))
         np.savetxt(name_folder + '/file_eta.out', eta.reshape(-1))
         f.close()
 
