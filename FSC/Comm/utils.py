@@ -179,6 +179,9 @@ class parameters_agent:
         self.act_hdl = None
 
         self.lr_th : float = 0.001
+        self.lr_val : list = [0.1,0.01,0.001]
+        self.lr_time_frac : list = [0.0,0.1,1.0]
+
         self.cost_move = None
         self.reward_find : float = 0.0
         self.gamma = 'auto'
@@ -206,7 +209,10 @@ class parameters_agent:
         else:
             self.gamma = json_file["gamma"]
 
-        self.lr_th = json_file['lr_th']
+        self.lr_th = json_file.get('lr_th',self.lr_th)
+        if self.lr_th == 'auto':
+            self.lr_val = json_file.get('lr_val',self.lr_val)
+            self.lr_time_frac = json_file.get('lr_time_frac',self.lr_time_frac)
 
         self.cost_move = json_file.get('cost_move',1-self.gamma)
 
@@ -288,6 +294,9 @@ class parameters_optimization:
         self.tol_eta  : float = 1e-8
         self.tol_Q    : float = 1e-8
         self.tol_conv : float = 1e-8
+        
+        self.max_iter_method : int = 100
+        self.init_direct :int = 100
 
         self.Ntot         : int = 1000
         self.Nprint       : int = 100
@@ -301,6 +310,9 @@ class parameters_optimization:
         self.tol_eta   = json_file.get('tol_eta',self.tol_eta)
         self.tol_Q     = json_file.get('tol_Q',self.tol_Q)
         self.tol_conv  = json_file.get('tol_conv',self.tol_conv)
+
+        self.max_iter_method = json_file.get('max_iter_method',self.max_iter_method)
+        self.init_direct = json_file.get('init_direct',self.init_direct)    
 
         self.Ntot         = json_file.get('Ntot',self.Ntot)
         self.Nprint       = json_file.get('Nprint',self.Nprint)
@@ -484,8 +496,6 @@ def create_PObs_RR(agent, env, plume, data, source_as_zero=None):
     plume_stat = plume.plume_stat
     exp_plume = plume.experimental
     adjust_factor = 1.0 / plume.adjust_factor
-
-    print('plume_factor',adjust_factor)  
     # ------------------------------------------------------------
 
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
@@ -669,6 +679,7 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
 
     # Optimization parameters
     tol = optim.tol_eta
+    max_iter = optim.max_iter_method
     # ------------------------------------------------------------
 
     timing = True
@@ -677,6 +688,7 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
         timer_step[0] = time.time()
 
     mpi_rank = solver.mpi_rank
+    mpi_size = solver.mpi_size
 
     if mpi_rank == 0:
         # O = Observations, M = Memory, A = Actions
@@ -740,7 +752,6 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
         timer_step[1] = time.time()
 
     if verbose and mpi_rank == 0:
-        print("-"*50)
         print("Solver info:")
         print("pi shape:",pi.shape)
         print("PY shape:",PY.shape, "PAMU shape:",PAMU.shape)
@@ -763,9 +774,9 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
 
     if solver.solver_type_eta == 'direct':
         if solver.use_petsc:
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, action_size, M, Lx, Ly, tol, solver.ksp_type,solver.pc_type, solver, device=solver.device, verbose=verbose)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, action_size, M, Lx, Ly, tol, max_iter, solver.ksp_type,solver.pc_type, solver, device=solver.device, verbose=verbose)
         else :
-            new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly ,tol, device=solver.device, verbose=verbose)
+            new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly ,tol, max_iter, device=solver.device, verbose=verbose)
 
         # print('After')
         # print(id(Tsm_sm_matrix))
@@ -785,7 +796,8 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
 
         # solver.solver_type_eta = 'iter'    
 
-    if timing:
+    # if timing:
+    if timing and (mpi_rank in [0,1,mpi_size/2,mpi_size-1]):
         timer_step[2] = time.time()
         total_time = timer_step[-1] - timer_step[0]
 
@@ -877,9 +889,10 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
 
     # Optimization parameters
     tol = optim.tol_Q 
+    max_iter = optim.max_iter_method
     # ------------------------------------------------------------
 
-    timing = True
+    timing = False
     if timing:
         timer_step = np.zeros(4)
         timer_step[0] = time.time()
@@ -887,48 +900,48 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
     if solver.mpi_rank == 0:
 
         reward = reward.reshape(M*Ly*Lx)
-        Tsm_sm_matrix_tmp = Tsm_sm_matrix_sp.copy()
-        Tsm_sm_matrix_tmp = Tsm_sm_matrix_tmp.tocoo()
+        # Tsm_sm_matrix_tmp = Tsm_sm_matrix_sp.copy()
+        # Tsm_sm_matrix_tmp = Tsm_sm_matrix_tmp.tocoo()
 
         Tsm_sm_matrix = Tsm_sm_matrix_sp.transpose()
         Tsm_sm_matrix = Tsm_sm_matrix.tocsr().copy()
 
 
 
-        Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_sp.transpose()
-        # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.transpose().tocoo()
-        Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.tocoo()
+        # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_sp.transpose()
+        # # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.transpose().tocoo()
+        # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.tocoo()
 
-        colA = Tsm_sm_matrix_tmp.col
-        rowA = Tsm_sm_matrix_tmp.row
-        dataA = Tsm_sm_matrix_tmp.data
+        # colA = Tsm_sm_matrix_tmp.col
+        # rowA = Tsm_sm_matrix_tmp.row
+        # dataA = Tsm_sm_matrix_tmp.data
 
-        colB = Tsm_sm_matrix_tmp2.col
-        rowB = Tsm_sm_matrix_tmp2.row
-        dataB = Tsm_sm_matrix_tmp2.data
+        # colB = Tsm_sm_matrix_tmp2.col
+        # rowB = Tsm_sm_matrix_tmp2.row
+        # dataB = Tsm_sm_matrix_tmp2.data
 
-        print('colA',colA[0:10])
-        print('colB',colB[0:10])
-        diff = colA - colB
-        print('diff col',diff.sum())
+        # print('colA',colA[0:10])
+        # print('colB',colB[0:10])
+        # diff = colA - colB
+        # print('diff col',diff.sum())
 
-        print('rowA',rowA[0:10])
-        print('rowB',rowB[0:10])
-        diff = rowA - rowB
-        print('diff row',diff.sum())
+        # print('rowA',rowA[0:10])
+        # print('rowB',rowB[0:10])
+        # diff = rowA - rowB
+        # print('diff row',diff.sum())
 
-        print('dataA',dataA[0:10])
-        print('dataB',dataB[0:10])
-        diff = dataA - dataB
-        print('diff data',diff.sum())
+        # print('dataA',dataA[0:10])
+        # print('dataB',dataB[0:10])
+        # diff = dataA - dataB
+        # print('diff data',diff.sum())
 
-        diff = Tsm_sm_matrix_tmp - Tsm_sm_matrix_tmp2
-        print('diff',diff.sum())
+        # diff = Tsm_sm_matrix_tmp - Tsm_sm_matrix_tmp2
+        # print('diff',diff.sum())
 
 
 
-        print(type(Tsm_sm_matrix))
-        print('T',Tsm_sm_matrix.data[0:10])
+        # print(type(Tsm_sm_matrix))
+        # print('T',Tsm_sm_matrix.data[0:10])
 
         action_size = act_hdl.A
     else:
@@ -947,10 +960,10 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
 
     if solver.solver_type_V == 'direct':
         if solver.use_petsc:
-            V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, action_size, M, Lx, Ly, tol, solver.ksp_type, solver.pc_type, solver, device=solver.device)
+            V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, action_size, M, Lx, Ly, tol, max_iter,solver.ksp_type, solver.pc_type, solver, device=solver.device)
         else :
-            V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, M, Lx, Ly, tol, device=solver.device)
-        print('V',V)
+            V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, M, Lx, Ly, tol, max_iter, device=solver.device)
+        # print('V',V)
 
 
         # solver.solver_type_V = 'iter'
@@ -978,7 +991,8 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
         Q = np.repeat(Q[np.newaxis,:,:,:,:], M,axis=0)
         Q = Q.flatten()
 
-    if timing:
+    # if timing:
+    if timing and (solver.mpi_rank in [0,1,solver.mpi_size/2,solver.mpi_size-1]):
         timer_step[3] = time.time()
         total_time = timer_step[-1] - timer_step[0]
 

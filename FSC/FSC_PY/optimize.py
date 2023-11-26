@@ -127,6 +127,9 @@ def optimize(fsc):
         if args.output_dir != '':
             name_folder = args.output_dir + '_' + name_folder
         os.makedirs(name_folder, exist_ok=True)
+        
+        # Create file to save values
+        f = open(name_folder+"/values.dat", "a")
     
         # Save parameters to file
         param = {}
@@ -161,8 +164,57 @@ def optimize(fsc):
 
 
     if mpi_rank == 0:
+
+        # Create the theta parameters to optimize
+        th = (np.random.rand(fsc.agent.O, fsc.agent.M, fsc.agent.AxM)-0.5)*0.5 
+        th[1:,:,2::fsc.agent.A] += 0.5
+        if fsc.optim.unbias:
+            th[1:,:,2::fsc.agent.A] -= 0.5
+
+        # Create eta array
+        eta = np.ones(fsc.env.L * fsc.agent.M)
+        eta *= (1-fsc.agent.gamma)/(fsc.env.L * fsc.agent.M)
+
+        # Create Q and V array
+        Q = utils.create_random_Q0(fsc.agent, fsc.env) 
+        V = np.ones(fsc.env.L * fsc.agent.M)
         
-        f = open(name_folder+"/values.dat", "a")
+        # Policy Initialization from previous run
+        if not fsc.optim.new_policy :
+            print('Loading previous policy from:')
+            print(fsc.optim.folder_restart)
+            # Load previous policy from file
+            folder_restart = fsc.optim.folder_restart
+            # Loadthe theta parameters to optimize
+            th = np.loadtxt(folder_restart + '/file_theta.out')
+            th = th.reshape(fsc.agent.O, fsc.agent.M, fsc.agent.A * fsc.agent.M)
+            # Load eta and Q
+            Q_load = np.loadtxt(folder_restart + '/file_Q.out')
+            eta_load = np.loadtxt(folder_restart + '/file_eta.out')
+
+            # Check if the size of the loaded eta and Q are correct
+            if eta_load.shape[0] == eta.shape[0]:
+                eta = eta_load
+            else:
+                print('Error in the size of eta, using standard initialization')
+            
+            if Q_load.shape[0] == Q.shape[0]:
+                Q = Q_load
+                
+                # Extract V from Q
+                V = V.reshape(fsc.agent.M, fsc.env.Ly, fsc.env.Lx)
+                Q = Q.reshape(fsc.agent.M,fsc.env.Ly, fsc.env.Lx, fsc.agent.M, fsc.agent.A)
+                for m in range(fsc.agent.M):
+                    V[m,:,:] = (Q[0,:,:,m,0] + fsc.agent.cost_move) / fsc.agent.gamma
+                V = V.flatten()
+                Q = Q.flatten()
+
+            else:
+                print('Error in the size of Q and V, using standard initialization')
+
+        # Create the initial policy
+        pi = softmax(th, axis=2)
+
         # Create array where the source is located
         yxs = it.product(np.arange(fsc.env.Ly), np.arange(fsc.env.Lx))
         find_range2 = fsc.env.find_range**2
@@ -171,68 +223,27 @@ def optimize(fsc):
                                    yxs)
         source_as_zero = np.array([i for i in yx_founds])
 
-        eta = np.ones(fsc.env.L * fsc.agent.M)
-        V   = np.ones(fsc.env.L * fsc.agent.M)
-        # V   = np.zeros(fsc.env.L * fsc.agent.M)
-
         # Create the observation and rewards
         PObs_lim, RR, PObs, RR_np = utils.create_PObs_RR(fsc.agent, fsc.env, fsc.plume, data=data, source_as_zero=source_as_zero)
         PObs_lim = np.abs(PObs_lim)
         
-
         # Create the initial positions of the agent
         # Initial density is only at y=0, proportional to signal probability
         rho0 = np.zeros(fsc.env.L * fsc.agent.M)
         rho0[:fsc.env.Lx] = (1-PObs_lim[0,:fsc.env.Lx])/np.sum((1-PObs_lim[0,:fsc.env.Lx]))
-        
         # if ("ev" in params.keys()):
         #     rho0[:Lx*Ly0//2] = (1-PObs_lim[0,:fsc.env.Lx*fsc.env.Ly0//2])/np.sum((1-PObs_lim[0,:fsc.env.Lx*fsc.env.Ly0//2]))
         # else:
         #     rho0[:fsc.env.Lx] = (1-PObs_lim[0,:fsc.env.Lx])/np.sum((1-PObs_lim[0,:fsc.env.Lx]))
-        rho0[:fsc.env.Lx] = (1-PObs_lim[0,:fsc.env.Lx])/np.sum((1-PObs_lim[0,:fsc.env.Lx]))
         
-        
-        # Policy Initialization with bias
-        if fsc.optim.new_policy :
-            # Create the theta parameters to optimize
-            th = (np.random.rand(fsc.agent.O, fsc.agent.M, fsc.agent.A * fsc.agent.M)-0.5)*0.5 
-            th[1:,:,2::fsc.agent.A] += 0.5
-            if fsc.optim.unbias:
-                th[1:,:,2::fsc.agent.A] -= 0.5
-
-            # Create a new eta and Q
-            eta *= (1-fsc.agent.gamma)/(fsc.env.L * fsc.agent.M)
-            Q = utils.create_random_Q0(fsc.agent, fsc.env) 
-        else:
-            # Load previous policy from file
-            folder_restart = fsc.optim.folder_restart
-            # Loadthe theta parameters to optimize
-            th = np.loadtxt(folder_restart + '/file_theta.out')
-            th = th.reshape(fsc.agent.O, fsc.agent.M, fsc.agent.A * fsc.agent.M)
-            # Load eta and Q
-            Q = np.loadtxt(folder_restart + '/file_Q.out')
-            eta = np.loadtxt(folder_restart + '/file_eta.out')
-            
-
-        # # V = V.reshape(M, Ly, Lx)
-        # V = V.reshape(fsc.agent.M, fsc.env.Ly, fsc.env.Lx)
-        # # Q = Q.reshape(Ly, Lx, M, A)
-        # Q = Q.reshape(fsc.agent.M,fsc.env.Ly, fsc.env.Lx, fsc.agent.M, fsc.agent.A)
-        # for m in range(fsc.agent.M):
-        #     V[m,:,:] = (Q[0,:,:,m,0] + fsc.agent.cost_move) / fsc.agent.gamma
-
-        # V = V.flatten()
-        # Q = Q.flatten()
-
-        # Create the initial policy
-        pi = softmax(th, axis=2)
-
+        # Init the initial value
         value = 0
         oldvalue = value
         ratio_change = 1.0
-
+    # ----------------------------------------------------------------------------
+        # END INITIALIZATIONS
+    # ----------------------------------------------------------------------------
         # Print the max value to achieve
-        # utils.get_max_value(Lx, Ly, Lx0, Ly0, find_range, rho0, gamma)
         utils.get_max_value(fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.env.find_range, rho0, fsc.agent.gamma)
 
 
@@ -249,8 +260,6 @@ def optimize(fsc):
         V = None
         pi = None
 
-
-
 # ----------------------------------------------------------------------------
     #OPTIMIZATION
 # ----------------------------------------------------------------------------
@@ -259,40 +268,43 @@ def optimize(fsc):
     verbose_eta = True
     time_step = np.zeros(fsc.optim.Nprint)
 
+    if fsc.agent.lr_th == 'auto':
+        # Learning rate schedule
+        lr_val =  [0.1, 0.01, 0.001 , 0.0001]
+        lr_time = [0.0, 0.1 , 0.8   , 1.0]
+        
+        lr_val = [0.1, 0.01, 0.0001,0.0001]
+        lr_time = [0.0, 0.01, 0.8, 1.0]
 
-    # Learning rate schedule
-    lr_val =  [0.1, 0.01, 0.001 , 0.0001]
-    lr_time = [0.0, 0.1 , 0.8   , 1.0]
-    
-    lr_val = [0.1, 0.01, 0.0001,0.0001]
-    lr_time = [0.0, 0.01, 0.8, 1.0]
+        lr_val = fsc.agent.lr_val
+        lr_time = fsc.agent.lr_time_frac
 
-    lr_val = interpolate.interp1d(lr_time, lr_val, kind='linear',fill_value="extrapolate")
-    lr_time = np.linspace(0.0, 1.0, num=fsc.optim.Ntot)
-    lr_values = lr_val(lr_time)
+        lr_val = interpolate.interp1d(lr_time, lr_val, kind='linear',fill_value="extrapolate")
+        lr_time = np.linspace(0.0, 1.0, num=fsc.optim.Ntot)
+        lr_values = lr_val(lr_time)
 
-    # def lr_descent(start,last,step):
-    #     nsteps = step[-1] - step[0]
-    #     step = step - step[0]
-    #     alpha = (start - last ) / (nsteps * last) 
-    #     return 1.0 / (1.0 + alpha * step * 1) * start 
+        # def lr_descent(start,last,step):
+        #     nsteps = step[-1] - step[0]
+        #     step = step - step[0]
+        #     alpha = (start - last ) / (nsteps * last) 
+        #     return 1.0 / (1.0 + alpha * step * 1) * start 
 
-    # lr_values = np.array([])
-    # for i in range(1,len(lr_rate)):
-    #     lr_values = np.concatenate((lr_values,lr_descent(lr_rate[i-1],lr_rate[i],np.arange(steps[i-1],steps[i]))))
+        # lr_values = np.array([])
+        # for i in range(1,len(lr_rate)):
+        #     lr_values = np.concatenate((lr_values,lr_descent(lr_rate[i-1],lr_rate[i],np.arange(steps[i-1],steps[i]))))
+    else:
+        lr_values = np.ones(fsc.optim.Ntot)*fsc.agent.lr_th
 
 
-    lr_values = np.ones(fsc.optim.Ntot)*fsc.agent.lr_th
+    init_direct = fsc.optim.init_direct
+    save_tol_eta = fsc.optim.tol_eta
+    save_tol_Q = fsc.optim.tol_Q
 
+    if init_direct != 0 and method == 'direct':
+        fsc.optim.tol_eta = -1
+        fsc.optim.tol_Q = -1
 
     # set steps for choose iter or direct
-    init_direct = 30
-    count_direct = 2
-    count_iter = 10
-    method_count = [count_direct, count_iter]
-    method_opt = ['direct', 'iter']
-    count_method = 0
-
     method_select = method
 
     convergence = 0
@@ -301,20 +313,9 @@ def optimize(fsc):
         # Time counter
         time_start = time.time()
 
-        # Choose method to solve the linear system
-        # if t > init_direct:
-        #     if count_method < method_count[0]:
-        #         count_method += 1
-        #     else:
-        #         count_method = 0
-        #         method_select = method_opt[1]
-        #         method_count.reverse()
-        #         method_opt.reverse()
-        # if ratio_change < 0.001 and t > init_direct:
-        #     method_select = method_opt[1]
-        # else:
-        #     method_select = method_opt[0]
-
+        if init_direct == t:
+            fsc.optim.tol_eta = save_tol_eta
+            fsc.optim.tol_Q = save_tol_Q
 
         if method_select == 'direct':
             # Direct linear system solution
@@ -323,7 +324,7 @@ def optimize(fsc):
             V, Q = utils.linear_solve_Q(fsc.agent, fsc.env, fsc.optim, T, V, RR_np, source_as_zero, solver=solver)
             time_Q = time.time()
 
-        if method_select == 'iter':
+        elif method_select == 'iter':
             print('method: {}'.format(method_select))
             # Iterative solutions of linear system
             eta = utils.iterative_solve_eta(fsc.agent, fsc.env, fsc.optim, pi, PObs_lim, rho0, eta)
@@ -364,6 +365,7 @@ def optimize(fsc):
         if (t % fsc.optim.Nprint == 0) and (mpi_rank == 0):
 
             print('lr_th: {:.5f}'.format(lr_th))
+            print('tol_eta: {:.5f} | tol_Q: {:.5f}'.format(fsc.optim.tol_eta, fsc.optim.tol_Q))
 
             time_step[ t % fsc.optim.Nprint] = time.time() - time_start
             print('step:{:5d} |  current value: {:.7f} | ratio value : {:.7f}'.format(t, value, ratio_change), end=' | ')
