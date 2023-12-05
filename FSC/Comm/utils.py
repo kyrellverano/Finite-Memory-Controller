@@ -1,15 +1,66 @@
 import numpy as np
+import json
+
 from scipy.special import softmax as softmax
 # from scipy import linalg
 import matplotlib.pyplot as plt
-import fast_sparce_multiplications_2D as fast_mult
 
 import time 
+from tqdm import tqdm
+
 # Linear solvers
+import fast_sparce_multiplications_2D as fast_mult
 from local_linear_solvers import *
 
+
 # ----------------------------------------------------------------------------
+# Functions to set the solver functions for the linear system
 class solver_opt:
+    """ Class to handle the solver options. 
+
+    It is possible to choose between different solvers for the linear system. Such as:
+    - scipy
+    - petsc
+    - cupy
+    - numpy
+    - torch
+
+    Attributes
+    ----------
+    function_solver_direct : function
+        Wrapper to the function to solve the linear system.
+    function_solver_iter : function
+        Wrapper to the function to solve the linear system.
+    solver_type_eta : str
+        Type of solver to use for the linear system. options: 'direct' or 'iter'
+    solver_type_V : str
+        Type of solver to use for the linear system. options: 'direct' or 'iter'
+    mpi_rank : int
+        Rank of the process.
+    mpi_size : int
+        Number of processes.
+    mpi_comm : MPI_Comm
+        MPI communicator.
+    use_petsc : bool
+        Use PETSc library to solve the linear system.
+    device : str
+        Device to use. options: 'cpu' or 'gpu'
+    Tmatrix_index : list
+        Index of the non-zero elements in the T matrix.
+    Tmatrix_p_index : list
+        Index for the probability matrix.
+    Tsm_sm_sp : scipy.sparse.csr_matrix
+        Sparse matrix with the transition matrix.
+    Tsm_sm_zero : list
+        Sparse matrix with the transition matrix.
+
+    Methods
+    -------
+    set_lib_solver(solver)
+        Set the solver to use for the linear system.
+
+    
+    """
 
     def __init__(self):
         """ 
@@ -40,8 +91,7 @@ class solver_opt:
         self.Tsm_sm_zero = None
 
     def set_lib_solver(self,solver):
-        """
-        This function set the solver to use for the linear system.
+        """ Set the solver to use for the linear system.
         """
         # Set the default solver
         if solver == None:
@@ -82,7 +132,7 @@ class solver_opt:
             if self.mpi_rank == 0:
                 print('Using petsc solver')
 
-            # Keep the allocation
+            # variable to keep the allocation of different variables
             self.Tsm_sm_sp_petsc = None
             self.var_list = None
             self.A = None
@@ -152,10 +202,31 @@ class solver_opt:
             return
 
 # ----------------------------------------------------------------------------
+# Funtion to handle the parameters of all the system
 class parameters:
+    """ Class to handle the parameters of the system.
+
+    Attributes
+    ----------
+    agent : parameters_agent
+        Parameters of the agent.
+    env : parameters_enviroment
+        Parameters of the enviroment.
+    plume : parameters_plume
+        Parameters of the plume.
+    optim : parameters_optimization
+        Parameters of the optimization.
+
+    Methods
+    -------
+    set_parameters(json_file)
+        Set the parameters of the system from a json file.
+
+    
+    """
     def __init__(self):
         self.agent = parameters_agent()
-        self.env = parameters_enviroment()
+        self.env = parameters_environment()
         self.plume = parameters_plume()
         self.optim = parameters_optimization()
 
@@ -166,6 +237,48 @@ class parameters:
         self.optim.set_values(json_file)
 
 class parameters_agent:
+    """ Class to handle the parameters of the agent.
+
+    Attributes
+    ----------
+    M : int
+        Memory of the agent.
+    O : int
+        Number of observations of the agent.
+    max_obs : int
+        Maximum number of observations of the agent.
+    A : int
+        Number of actions of the agent.
+    actions_move : list
+        List of the actions of the agent.
+    actions_name : list
+        List of the names of the actions of the agent.
+    act_hdl : AgentActions
+        Handler of the actions of the agent.
+    lr_th : float
+        Learning rate of the agent.
+    lr_val : list
+        List of the learning rates of the agent.
+    lr_time_frac : list
+        List of the learning rates of the agent.
+    cost_move : float
+        Cost of moving of the agent.
+    reward_find : float
+        Reward of finding the source of the agent.
+    gamma : float
+        Discount factor of the agent.
+    AxM : int
+        Number of actions times the memory of the agent.
+
+
+    Methods
+    -------
+    set_values(json_file,Lx)
+        Set the parameters of the agent from a json file.
+
+
+    """
+
     def __init__(self):
         # Default values
         self.M : int = 1
@@ -218,7 +331,32 @@ class parameters_agent:
 
         self.AxM = self.A * self.M
 
-class parameters_enviroment:
+class parameters_environment:
+    """ Class to handle the parameters of the environment.
+
+    Attributes
+    ----------
+    Lx : int
+        Size of the environment in the x direction.
+    Ly : int
+        Size of the environment in the y direction.
+    Lx0 : float
+        Position of the source in the x direction.
+    Ly0 : float
+        Position of the source in the y direction.
+    find_range : float
+        Range of the agent to find the source.
+    sigma : float
+        Standard deviation of the gaussian of the source.
+
+    Methods
+    -------
+    set_values(json_file)
+        Set the parameters of the environment from a json file.
+
+
+    """
+
     def __init__(self):
         # Default values
         self.Lx  : int = 35
@@ -249,6 +387,41 @@ class parameters_enviroment:
         self.L = self.Lx * self.Ly
 
 class parameters_plume:
+    """ Class to handle the parameters of the plume.
+
+    Attributes
+    ----------
+    coarse : int
+        Coarse of the plume.
+    dth : int
+        Threshold of the plume.
+    symmetry : int
+        Symmetry of the plume.
+    replica : int
+        Replica of the plume.
+    D : float
+        Diffusion coefficient of the plume.
+    V : float
+        Wind speed of the plume.
+    tau : float
+        Time of the plume.
+    beta : int
+        Beta of the plume.
+    plume_stat : str
+        Statistics of the plume.
+    experimental : bool
+        Use experimental data for the plume.
+    adjust_factor : float
+        Factor to adjust the size of the plume.
+
+    Methods
+    -------
+    set_values(json_file)
+        Set the parameters of the plume from a json file.
+
+        
+    """
+
     def __init__(self):
         # Default values
         self.coarse : int = 0
@@ -289,14 +462,49 @@ class parameters_plume:
             self.adjust_factor = json_file.get('adjust_factor')
         
 class parameters_optimization:
+    """ Class to handle the parameters of the optimization.
+
+    Attributes
+    ----------
+    tol_eta : float
+        Tolerance of the eta convergence.
+    tol_Q : float
+        Tolerance of the Q convergence.
+    tol_conv : float
+        Tolerance of the convergence of the optimization.
+    max_iter_method : int
+        Maximum number of iterations using the iterative method Jacobi.
+    init_direct : int
+        Number of optimization steps using the direct method at the beginning of the optimization.
+    Ntot : int
+        Total number of steps of the optimization.
+    Nprint : int
+        Number of steps to print the optimization.
+    minimum_iter : int
+        Minimum number of steps of the optimization.
+    new_policy : bool
+        Use a new policy for the optimization.
+    unbias : bool
+        Unbias the optimization.
+    folder_restart : str
+        Folder to read the policy for the optimization.
+
+    Methods
+    -------
+    set_values(json_file)
+        Set the parameters of the plume from a json file.
+
+        
+    """
+
     def __init__(self):
         # Default values
         self.tol_eta  : float = 1e-8
         self.tol_Q    : float = 1e-8
         self.tol_conv : float = 1e-8
         
-        self.max_iter_method : int = 100
-        self.init_direct :int = 100
+        self.max_iter_method : int = 7
+        self.init_direct :int = 1000
 
         self.Ntot         : int = 1000
         self.Nprint       : int = 100
@@ -323,8 +531,25 @@ class parameters_optimization:
         self.folder_restart = json_file.get('folder_restart',self.folder_restart)
 
 # ----------------------------------------------------------------------------
-
+# Functions to load and print the parameters of the system
 def create_output_folder_name(fsc, method, lib_solve_linear_system):
+        """ Create the name of the output folder.
+
+        Parameters
+        ----------
+        fsc : parameters
+            Parameters of the system.
+        method : str
+            Method to use for the optimization.
+        lib_solve_linear_system : str
+            Library to use for the linear system.
+
+        Returns
+        -------
+        name_folder : str
+            Name of the output folder.
+
+        """
         name_folder = 'ExpPlume_'
         name_folder += f'Agent_'
         name_folder += f'A{fsc.agent.A}'
@@ -349,19 +574,80 @@ def create_output_folder_name(fsc, method, lib_solve_linear_system):
         return name_folder
 
 def print_parameters(fsc,method,lib_solve_linear_system,device):
-    print("-"*50)
+    """ Print the parameters of the system.
+
+    Parameters
+    ----------
+    fsc : parameters
+        Parameters of the system.
+    method : str
+        Method to use for the optimization.
+    lib_solve_linear_system : str
+        Library to use for the linear system.
+    device : str
+        Device to use.
+
+    """
     print("System parameters:")
-    print("Lx: ",fsc.env.Lx,"   Ly: ",fsc.env.Ly,"   M: ",fsc.agent.M,"   O: ",fsc.agent.O,"   Actions: ",fsc.agent.A)
-    print("gamma: ",fsc.agent.gamma,"   lr_th: ",fsc.agent.lr_th, "   find_range: ",fsc.env.find_range)
     print("-"*50)
+    # print agent parameters
+    print("Agent parameters:")
+    print("Memory: ",fsc.agent.M,"   Observation: ",fsc.agent.O,"   Max obs: ",fsc.agent.max_obs)
+    print("    Gamma: ",fsc.agent.gamma)
+    print("Cost move: ",fsc.agent.cost_move,"   Reward find: ",fsc.agent.reward_find)
+    print("      Actions: ",fsc.agent.A)
+    print(" Actions name: ",fsc.agent.actions_name)
+    print(" Actions move: ",fsc.agent.actions_move)
+    print("Learning rate: ",fsc.agent.lr_th)
+    if fsc.agent.lr_th == 'auto':
+        print("       Learning rate values: ",fsc.agent.lr_val)
+        print("Learning rate time fraction: ",fsc.agent.lr_time_frac)
+    print("-"*50)
+    # print enviroment parameters
+    print("Enviroment parameters:")
+    print("  Lx: {:<8}   Ly: {:<8}".format(fsc.env.Lx,fsc.env.Ly))
+    print(" Lx0: {:<8}  Ly0: {:<8}".format(fsc.env.Lx0,fsc.env.Ly0))
+    print("Find range: ",fsc.env.find_range,"   Sigma: ",fsc.env.sigma)
+    print("-"*50)
+    # print plume parameters
+    print("Plume parameters:")
+    print("Coarse: ",fsc.plume.coarse,"   Dth: ",fsc.plume.dth)
+    print("Symmetry: ",fsc.plume.symmetry,"   Replica: ",fsc.plume.replica)
+    print("D: ",fsc.plume.D,"   V: ",fsc.plume.V,"   Tau: ",fsc.plume.tau,"   Beta: ",fsc.plume.beta)
+    print("Plume stat: ",fsc.plume.plume_stat,"   Experimental: ",fsc.plume.experimental)
+    print("Adjust factor: ",fsc.plume.adjust_factor)
+    print("-"*50)
+    # print optimization parameters
     print("Optimization parameters:")
     print('method: {}   solver: {}   device: {}'.format(method,lib_solve_linear_system,device))
-    print("Ntot:",fsc.optim.Ntot,"   Nprint:",fsc.optim.Nprint,"   tol_conv:",fsc.optim.tol_conv, "   minimum_step:",fsc.optim.minimum_iter)
+    print("Ntot:",fsc.optim.Ntot,"   Nprint:",fsc.optim.Nprint)
+    print("Tol_conv:",fsc.optim.tol_conv, "   minimum_step:",fsc.optim.minimum_iter)
+    print("Tol_eta:",fsc.optim.tol_eta, "   Tol_Q:",fsc.optim.tol_Q)
+    print("new_policy:",fsc.optim.new_policy, "   unbias:",fsc.optim.unbias)
+    print("Folder restart:",fsc.optim.folder_restart)
     print("-"*50)
-    # get_max_value(fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.env.find_range, rho0, fsc.agent.gamma)
-    # print("-"*50)
 
 def get_max_value(Lx, Ly, Lx0, Ly0, find_range, rho0, gamma):
+    """ Print the maximum value can be obtained. 
+
+    Parameters
+    ----------
+    Lx : int
+        Size of the environment in the x direction.
+    Ly : int    
+        Size of the environment in the y direction.
+    Lx0 : float
+        Position of the source in the x direction.
+    Ly0 : float
+        Position of the source in the y direction.
+    find_range : float
+        Range of the agent to find the source.
+    rho0 : numpy.ndarray
+        Initial distribution of the agent.
+    gamma : float
+        Discount factor of the agent.
+
+    """
     max_value = []
     for x in range(Lx):
         for y in range(Ly):
@@ -374,11 +660,51 @@ def get_max_value(Lx, Ly, Lx0, Ly0, find_range, rho0, gamma):
             max_value.append(discount*rho0[y*Lx+x])
 
     print("Avg max value: {:.8f}".format(np.sum(max_value)))
+    print("-"*50)
+
+def save_parameters(fsc,name_folder):
+    param = {}
+    param.update(fsc.agent.__dict__)
+    param.update(fsc.env.__dict__)
+    param.update(fsc.plume.__dict__)
+    param.update(fsc.optim.__dict__)
+    param.pop('act_hdl')
+    param.pop('factor_dim')
+    with open(name_folder+'/input.dat', 'w') as fp:
+        json.dump(param, fp)
+
 
 # ----------------------------------------------------------------------------
+# Functions to create the initial distribution of the agent
 def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR, alpha=1.0): 
-    """
-    Returns a diffusion plume with given parameters.
+    """ Returns a diffusion plume with given parameters. 
+    
+    Parameters
+    ----------  
+    Lx : int
+        Size of the environment in the x direction.
+    Ly : int
+        Size of the environment in the y direction.
+    Lx0 : float
+        Position of the source in the x direction.
+    Ly0 : float
+        Position of the source in the y direction.
+    D : float
+        Diffusion coefficient of the plume.
+    V : float
+        Wind speed of the plume.
+    tau : float
+        Time of the plume.
+    aR : int
+        Beta of the plume.
+    alpha : float
+        Factor to adjust the size of the plume.
+
+    Returns
+    -------
+    cplume : numpy.ndarray
+        Diffusion plume with given parameters.
+
     """
     spacex = np.arange(1,Lx+1)-(Lx+1)/2.
     spacey = np.arange(Ly)-(Ly0-1)
@@ -391,6 +717,19 @@ def create_cplume(Lx, Ly, Lx0, Ly0, D, V, tau, aR, alpha=1.0):
 def create_random_Q0(agent, env):
     """
     Returns an approx Q for a random diffusion.
+
+    Parameters
+    ----------
+    agent : parameters_agent
+        Parameters of the agent.
+    env : parameters_enviroment
+        Parameters of the enviroment.
+
+    Returns
+    -------
+    random_Q0 : numpy.ndarray
+        Approx Q for a random diffusion.
+
     """
 
     # ------------------------------------------------------------
@@ -418,8 +757,29 @@ def create_random_Q0(agent, env):
     return random_Q0
 
 def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
-    """
-    Returns a diffusion plume from a given data.
+    """ Returns a diffusion plume from a experimental  data.
+
+    Parameters
+    ----------
+    Lx : int
+        Size of the environment in the x direction.
+    Ly : int
+        Size of the environment in the y direction.
+    Lx0 : float
+        Position of the source in the x direction.
+    Ly0 : float
+        Position of the source in the y direction.
+    cmax : int
+        Beta of the plume.
+    data : numpy.ndarray
+        Experimental data.
+
+    Returns
+    -------
+    new_plume : numpy.ndarray
+        shape (Lx, Ly)
+        Diffusion plume from a experimental data.
+
     """
     Lx0 = int(Lx0)
     Ly0 = int(Ly0)
@@ -461,9 +821,28 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     return new_plume[::-1,:]
 
 def average_reward(Tsm_sm_matrix, M, Lx, Ly, cost_move,source_as_zero):
-    """
-    This function compute the average reward from the Transition matrix T
-    The dimension of RR is (M, Ly, Lx)
+    """ This function compute the average reward from the Transition matrix T
+
+    Parameters
+    ----------
+    Tsm_sm_matrix : numpy.ndarray
+        Transition matrix.
+    M : int
+        Memory of the agent.
+    Lx : int
+        Size of the environment in the x direction.
+    Ly : int
+        Size of the environment in the y direction.
+    cost_move : float
+        Cost of moving of the agent.
+    source_as_zero : numpy.ndarray
+        Position of the source.
+
+    Returns
+    -------
+    RR : numpy.ndarray
+        shape (M, Ly, Lx)
+        Average reward from the Transition matrix T.
     """
     # Tsm_sm = Tsm_sm_matrix.reshape(M, Ly, Lx, M, Ly, Lx)
     # RR = -cost_move * Tsm_sm.sum(axis=(0,1,2))
@@ -474,6 +853,38 @@ def average_reward(Tsm_sm_matrix, M, Lx, Ly, cost_move,source_as_zero):
     return RR
 
 def create_PObs_RR(agent, env, plume, data, source_as_zero=None):
+    """
+    This function should create the Probability of Observation and Rewards matrices.
+
+    Parameters
+    ----------
+    agent : parameters_agent
+        Parameters of the agent.
+    env : parameters_enviroment
+        Parameters of the enviroment.
+    plume : parameters_plume
+        Parameters of the plume.
+    data : numpy.ndarray
+        Experimental data.
+    source_as_zero : numpy.ndarray
+        Position of the source.
+
+    Returns
+    -------
+    PObs_lim : numpy.ndarray
+        shape (diff_obs, Lx*Ly*M)
+        Probability of Observation matrix.
+    RR : numpy.ndarray
+        shape (M, Ly, Lx)
+        Rewards matrix.
+    PObs : numpy.ndarray
+        shape (max_obs, Lx*Ly)
+        Probability of Observation matrix.
+    RR_np : numpy.ndarray
+        shape (M*Ly*Lx)
+        Rewards matrix.
+
+    """
 
     # ------------------------------------------------------------
     # Environment parameters
@@ -545,10 +956,36 @@ def create_PObs_RR(agent, env, plume, data, source_as_zero=None):
 
     return np.abs(PObs_lim), RR, np.abs(PObs), RR_np
 
+# ----------------------------------------------------------------------------
+# Functions to solve the linear system
 def iterative_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta0):
     """
     This function should solve the following:
-    --> New_eta = (1 - gamma T)^-1 rho
+    $ \eta = (1 - \gamma T)^{-1} \rho $ 
+
+    Parameters
+    ----------
+    agent : parameters_agent
+        Parameters of the agent.
+    env : parameters_enviroment
+        Parameters of the enviroment.
+    optim : parameters_optimization
+        Parameters of the optimization.
+    pi : numpy.ndarray
+        Policy of the agent.
+    PObs_lim : numpy.ndarray
+        Probability of Observation matrix.
+    rho0 : numpy.ndarray
+        Initial distribution of the agent.
+    eta0 : numpy.ndarray
+        Initial eta of the agent.
+
+    Returns
+    -------
+    new_eta : numpy.ndarray
+        shape (Lx*Ly*M)
+        New eta of the agent.
+
     """
     # ------------------------------------------------------------
     # Environment parameters
@@ -595,7 +1032,31 @@ def iterative_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta0):
 def iterative_solve_Q(agent, env, optim, pi, PObs_lim, RR, Q0):
     """
     This function should solve the following:
-    --> New_Q = RR + gamma T Q
+    $ Q = (1 - \gamma T^T)^{-1} \RR $ 
+
+    Parameters
+    ----------
+    agent : parameters_agent
+        Parameters of the agent.
+    env : parameters_enviroment
+        Parameters of the enviroment.
+    optim : parameters_optimization
+        Parameters of the optimization.
+    pi : numpy.ndarray
+        Policy of the agent.
+    PObs_lim : numpy.ndarray
+        Probability of Observation matrix.  
+    RR : numpy.ndarray
+        Rewards matrix.
+    Q0 : numpy.ndarray
+        Initial Q of the agent.
+
+    Returns
+    -------
+    new_Q : numpy.ndarray
+        shape (Lx*Ly*M*A)
+        New Q of the agent.
+
     """
     # ------------------------------------------------------------
     # Environment parameters
@@ -639,6 +1100,29 @@ def iterative_solve_Q(agent, env, optim, pi, PObs_lim, RR, Q0):
 
 # Define the action space
 class AgentActions():
+    """ Class to handle the actions of the agent.
+
+    Attributes
+    ----------
+    A : int
+        Number of actions.
+    actions : numpy.ndarray
+        Actions of the agent.
+    actions_names : dict
+        Names of the actions.
+
+    Methods
+    -------
+    set_action(action_index, action, action_name)
+        Set the action of the agent.
+
+    action_move(action_index)
+        Return the action of the agent.
+
+    action_name(action_index)
+        Return the name of the action of the agent.
+
+    """
     def __init__(self,actions_number):
         space_dim = 2
         self.A = actions_number
@@ -665,7 +1149,37 @@ class AgentActions():
 def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero, verbose=False, solver = None):
     """
     This function should solve the following:
-    --> New_eta = (1 - gamma T)^-1 rho
+    $ \eta = (1 - \gamma T)^{-1} \rho $
+
+    Parameters
+    ----------
+    agent : parameters_agent
+        Parameters of the agent.
+    env : parameters_enviroment
+        Parameters of the enviroment.
+    optim : parameters_optimization
+        Parameters of the optimization.
+    eta : numpy.ndarray
+        eta of the agent.
+    rho0 : numpy.ndarray
+        Initial distribution of the agent.
+    pi : numpy.ndarray
+        Policy of the agent.
+    PObs_lim : numpy.ndarray
+        Probability of Observation matrix.
+    source_as_zero : numpy.ndarray
+        Position of the source.
+    verbose : bool
+        Print information of the optimization.
+    solver : solver
+        Solver object that contains the solver to use.
+
+    Returns
+    -------
+    new_eta : numpy.ndarray
+        shape (Lx*Ly*M)
+        New eta of the agent.
+
     """
     # ------------------------------------------------------------
     # Environment parameters
@@ -682,7 +1196,7 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
     max_iter = optim.max_iter_method
     # ------------------------------------------------------------
 
-    timing = True
+    timing = False
     if timing:
         timer_step = np.zeros(3)
         timer_step[0] = time.time()
@@ -705,41 +1219,9 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
         #               = sum_a, mu p(s'm' | sm a mu) sum_y f(y | s) pi(a mu | y m)
 
         # Tsm_sm_matrix = build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl.A,p_a_mu_m_xy)
-        # Tsm_sm_matrix_org = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
-        # print('Original')
-        # print(type(Tsm_sm_matrix_org))
-        # Tsm_sm_matrix_org = Tsm_sm_matrix_org.copy().tocsr()
-        # print(type(Tsm_sm_matrix_org))
-        # col = Tsm_sm_matrix_org.indices
-        # row = Tsm_sm_matrix_org.indptr
-        # data = Tsm_sm_matrix_org.data
-        # print(col[0:10])
-        # print(row[0:10])
-        # print(data[0:10])
-        # print('%'*50)
-
+        # Tsm_sm_matrix = build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero)
         # Tsm_sm_matrix = build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
-
         Tsm_sm_matrix = build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver)
-        # print('New')
-        # print(id(Tsm_sm_matrix))
-        # print(type(Tsm_sm_matrix))
-        # # # Tsm_sm_matrix = Tsm_sm_matrix.transpose()
-        # # Tsm_sm_matrix = Tsm_sm_matrix.tocoo()
-        # # print(type(Tsm_sm_matrix))
-        # col = Tsm_sm_matrix.indices
-        # row = Tsm_sm_matrix.indptr
-        # data = Tsm_sm_matrix.data
-        # print(col[0:10])
-        # print(row[0:10])
-        # print(data[0:10])
-        # # # Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
-        # print('%'*50)
-
-
-        # diff = Tsm_sm_matrix_org - Tsm_sm_matrix
-        # print("diff T matrix:",diff.sum())
-
 
         action_size = act_hdl.A
 
@@ -752,19 +1234,20 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
         timer_step[1] = time.time()
 
     if verbose and mpi_rank == 0:
-        print("Solver info:")
-        print("pi shape:",pi.shape)
-        print("PY shape:",PY.shape, "PAMU shape:",PAMU.shape)
-        print("p_a_mu_m_xy shape:",p_a_mu_m_xy.shape)
+        print("T matrix info:")
+        # print("pi shape:",pi.shape)
+        # print("PY shape:",PY.shape, "PAMU shape:",PAMU.shape)
+        # print("p_a_mu_m_xy shape:",p_a_mu_m_xy.shape)
         
         print("               Type of Tsm_sm_matrix:",type(Tsm_sm_matrix))
         print("                 Tsm_sm_matrix shape:",Tsm_sm_matrix.shape)
         print("number of non-zeros in Tsm_sm_matrix:",Tsm_sm_matrix.nnz)
         print("number of     zeros in Tsm_sm_matrix:",M*Lx*Ly*M*Lx*Ly - Tsm_sm_matrix.nnz)
         print("               opacity of the matrix: {:7.4f}".format(Tsm_sm_matrix.nnz/(M*Lx*Ly*M*Lx*Ly) * 100.0), "%")
-        print("           Sparse matrix memory size:", Tsm_sm_matrix.data.nbytes/1e6, " MB")
+        # print("           Sparse matrix memory size:", Tsm_sm_matrix.data.nbytes/1e6, " MB")
+        print("           Sparse matrix memory size:", Tsm_sm_matrix.data.nbytes/1e6 + Tsm_sm_matrix.indptr.nbytes/1e6 + Tsm_sm_matrix.indices.nbytes/1e6, " MB")
         print("Theoretical dense matrix memory size:", M*Lx*Ly*M*Lx*Ly*8/1e6, " MB")
-        print("-"*50)
+        print('-'*77)
 
     if solver.solver_type_eta == 'iter':
         if solver.use_petsc:
@@ -777,22 +1260,6 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
             new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, action_size, M, Lx, Ly, tol, max_iter, solver.ksp_type,solver.pc_type, solver, device=solver.device, verbose=verbose)
         else :
             new_eta = solver.function_solver_direct(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly ,tol, max_iter, device=solver.device, verbose=verbose)
-
-        # print('After')
-        # print(id(Tsm_sm_matrix))
-        # print(type(Tsm_sm_matrix))
-        # # # Tsm_sm_matrix = Tsm_sm_matrix.transpose()
-        # # Tsm_sm_matrix = Tsm_sm_matrix.tocoo()
-        # # print(type(Tsm_sm_matrix))
-        # col = Tsm_sm_matrix.indices
-        # row = Tsm_sm_matrix.indptr
-        # data = Tsm_sm_matrix.data
-        # print(col[0:10])
-        # print(row[0:10])
-        # print(data[0:10])
-        # # # Tsm_sm_matrix = Tsm_sm_matrix.tocsr()
-        # print('%'*50)
-
 
         # solver.solver_type_eta = 'iter'    
 
@@ -817,6 +1284,26 @@ def linear_solve_eta(agent, env, optim, eta, rho0, pi, PObs_lim, source_as_zero,
     return new_eta, Tsm_sm_matrix
 
 def get_next_state(state : np.ndarray, action : int, act_hdl : AgentActions, move = None):
+    """
+    This function should return the next state of the agent after the action.
+
+    Parameters
+    ----------
+    state : numpy.ndarray
+        State of the agent.
+    action : int
+        Action of the agent.
+    act_hdl : AgentActions
+        Handler of the actions of the agent.
+    move : list
+        Move of the agent.
+
+    Returns
+    -------
+    state : numpy.ndarray
+        State of the agent.
+
+    """
 
     if move is None :
         move = act_hdl.action_move(action)
@@ -876,6 +1363,34 @@ def get_next_state(state : np.ndarray, action : int, act_hdl : AgentActions, mov
 def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zero, verbose=False, solver=None):
     """
     This function computes the Q function from the reward and the transition matrix
+
+    Parameters
+    ----------
+    agent : parameters_agent
+        Parameters of the agent.
+    env : parameters_enviroment
+        Parameters of the enviroment.
+    optim : parameters_optimization
+        Parameters of the optimization.
+    Tsm_sm_matrix_sp : numpy.ndarray
+        Transition matrix.
+    V : numpy.ndarray
+        Value function.
+    reward : numpy.ndarray
+        Reward function.
+    source_as_zero : numpy.ndarray
+        Position of the source.
+    verbose : bool
+        Print information of the optimization.
+    solver : solver
+        Solver object that contains the solver to use.
+
+    Returns
+    -------
+    Q : numpy.ndarray
+        shape (Lx*Ly*M*A)
+        Q function of the agent.
+
     """
     # ------------------------------------------------------------
     # Environment parameters
@@ -900,55 +1415,15 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
     if solver.mpi_rank == 0:
 
         reward = reward.reshape(M*Ly*Lx)
-        # Tsm_sm_matrix_tmp = Tsm_sm_matrix_sp.copy()
-        # Tsm_sm_matrix_tmp = Tsm_sm_matrix_tmp.tocoo()
 
         Tsm_sm_matrix = Tsm_sm_matrix_sp.transpose()
         Tsm_sm_matrix = Tsm_sm_matrix.tocsr().copy()
-
-
-
-        # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_sp.transpose()
-        # # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.transpose().tocoo()
-        # Tsm_sm_matrix_tmp2 = Tsm_sm_matrix_tmp2.tocoo()
-
-        # colA = Tsm_sm_matrix_tmp.col
-        # rowA = Tsm_sm_matrix_tmp.row
-        # dataA = Tsm_sm_matrix_tmp.data
-
-        # colB = Tsm_sm_matrix_tmp2.col
-        # rowB = Tsm_sm_matrix_tmp2.row
-        # dataB = Tsm_sm_matrix_tmp2.data
-
-        # print('colA',colA[0:10])
-        # print('colB',colB[0:10])
-        # diff = colA - colB
-        # print('diff col',diff.sum())
-
-        # print('rowA',rowA[0:10])
-        # print('rowB',rowB[0:10])
-        # diff = rowA - rowB
-        # print('diff row',diff.sum())
-
-        # print('dataA',dataA[0:10])
-        # print('dataB',dataB[0:10])
-        # diff = dataA - dataB
-        # print('diff data',diff.sum())
-
-        # diff = Tsm_sm_matrix_tmp - Tsm_sm_matrix_tmp2
-        # print('diff',diff.sum())
-
-
-
-        # print(type(Tsm_sm_matrix))
-        # print('T',Tsm_sm_matrix.data[0:10])
 
         action_size = act_hdl.A
     else:
         Tsm_sm_matrix = None
         action_size = None
         Q = None
-
 
     if timing:
         timer_step[1] = time.time()
@@ -963,9 +1438,6 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
             V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, action_size, M, Lx, Ly, tol, max_iter,solver.ksp_type, solver.pc_type, solver, device=solver.device)
         else :
             V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, M, Lx, Ly, tol, max_iter, device=solver.device)
-        # print('V',V)
-
-
         # solver.solver_type_V = 'iter'
 
     if timing:
@@ -1012,7 +1484,31 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
                 
     return V.flatten(), Q
 
+# ----------------------------------------------------------------------------
+# Functions to compute the gradient, value
 def find_grad(pi, Q, eta, L, PObs_lim):
+    """ Compute the gradient of the cost function.
+
+    Parameters
+    ----------
+    pi : numpy.ndarray
+        Policy of the agent.
+    Q : numpy.ndarray
+        Q function of the agent.
+    eta : numpy.ndarray
+        Eta of the agent.
+    L : int
+        Number of states.
+    PObs_lim : numpy.ndarray
+        Probability of Observation matrix.
+
+    Returns
+    -------
+    gradpi : numpy.ndarray
+        shape (O, M, AxM)
+        Gradient of the cost function.
+
+    """
     # grad J = sum_s sum_a Q(s,a) eta(s) sum_o grad pi(a|s o) f(o|s) 
     O, M, a_size = pi.shape
     Q_reshaped = np.reshape(Q, (L*M, a_size))
@@ -1030,6 +1526,27 @@ def find_grad(pi, Q, eta, L, PObs_lim):
     return gradpi
 
 def get_value(Q, pi, PObs_lim, L, rho0):
+    """ Compute the value function of the agent.
+
+    Parameters
+    ----------
+    Q : numpy.ndarray
+        Q function of the agent.
+    pi : numpy.ndarray
+        Policy of the agent.
+    PObs_lim : numpy.ndarray
+        Probability of Observation matrix.
+    L : int
+        Number of states.
+    rho0 : numpy.ndarray
+
+    Returns
+    -------
+    value : float
+        Value function of the agent.
+
+    """
+
     O, M, a_size = pi.shape
     # We assume rho_starting is uniform on L but only in memory 0
     pi_L_M0 = np.tile(pi[:, 0, :], (1,1,L) ).reshape(O,-1)
@@ -1041,9 +1558,39 @@ def get_value(Q, pi, PObs_lim, L, rho0):
     value = np.sum(true_pi*Q[:L*a_size])
     return value
 
+
+# ----------------------------------------------------------------------------
+# Functions to compute the trajectory of the agent
 from types import new_class
 def one_step(a, x, y, Lx, Ly, act_hdl):
-    
+    """ Compute the next state of the agent.
+
+    Parameters
+    ----------
+    a : int
+        Action of the agent.
+    x : int
+        Position of the agent in the x direction.
+    y : int
+        Position of the agent in the y direction.
+    Lx : int
+        Size of the environment in the x direction.
+    Ly : int
+        Size of the environment in the y direction.
+    act_hdl : AgentActions
+        Handler of the actions of the agent.
+
+    Returns
+    -------
+    m : int
+        Memory of the agent.
+    newx : int
+        New position of the agent in the x direction.
+    newy : int
+        New position of the agent in the y direction.
+
+    """
+
     m = a//act_hdl.A
     newx = x
     newy = y
@@ -1065,12 +1612,47 @@ def one_step(a, x, y, Lx, Ly, act_hdl):
     #     newy = max(y-1,0)
     return m, newx, newy
 
-def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, Tmax, PObs, rho0, act_hdl, progress_bar=False):
+def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, Tmax, PObs, rho0, act_hdl, progress_bar=False,save_traj=True):
+    """ Compute the trajectory of the agent.
 
-    if progress_bar:
-        from tqdm import tqdm
+    Parameters
+    ----------
+    pi : numpy.ndarray
+        Policy of the agent.
+    Lx : int
+        Size of the environment in the x direction.
+    Ly : int
+        Size of the environment in the y direction.
+    Lx0 : int
+        Position of the source in the x direction.
+    Ly0 : int
+        Position of the source in the y direction.
+    find_range : float
+        Range of the agent.
+    Tmax : int
+        Maximum number of steps.
+    PObs : numpy.ndarray
+        Probability of Observation matrix.
+    rho0 : numpy.ndarray
+        Initial distribution of the agent.
+    act_hdl : AgentActions
+        Handler of the actions of the agent.
+    progress_bar : bool
+        Print progress bar.
+    save_traj : bool
+        Save trajectory.
 
-  
+    Returns
+    -------
+    trj : numpy.ndarray
+        Trajectory of the agent.
+    success : int
+        1 if the agent found the source, 0 otherwise.
+    time_steps : int
+        Number of steps of the agent.
+
+    """
+
     fixed_time = True if Tmax > 1 else False
     
     O, M, a_size = pi.shape
@@ -1117,8 +1699,10 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, Tmax, PObs, rho0, act_hdl,
             done = True
         #if np.random.rand()<1-gamma:
             #done = True
-        trj = np.append(trj, [[a,x,y,m,r]], axis=0)
+        if save_traj:
+            trj = np.append(trj, [[a,x,y,m,r]], axis=0)
 
     if progress_bar:
         pbar.close()
+        
     return trj, success, time_steps

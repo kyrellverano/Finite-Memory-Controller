@@ -6,20 +6,65 @@ import scipy.sparse as sparse
 
 # ----------------------------------------------------------------------------
 def index_six_to_two(index,M,Ly,Lx):
-    # Convert the index of an array of 6 dim to 2 dim
-    # new_index_x = index[0] * Lx * Ly + index[1] * Lx + index[2]
-    # new_index_y = index[3] * Lx * Ly + index[4] * Lx + index[5]
-    # increse the performance of the new_index_x and new_index_y
+    """ Convert the index of an array of 6 dim to 2 dim 
+
+    Parameters
+    ----------
+    index : array of 6 dim
+        index[0] = im
+        index[1] = iy
+        index[2] = ix
+        index[3] = jm
+        index[4] = jy
+        index[5] = jx
+    M : int
+        Number of memory states
+    Ly : int
+        Number of rows
+    Lx : int
+        Number of columns
+
+    Returns
+    -------
+
+    new_index : tuple
+        index of the new array of 2 dim
+        (new_index_x, new_index_y)
+    
+    """
+
     new_index_x = Lx * ( index[0] * Ly + index[1] ) + index[2]
     new_index_y = Lx * ( index[3] * Ly + index[4] ) + index[5]
 
     return (new_index_x,new_index_y)
 
 def index_six_to_two_2(index,M,Ly,Lx):
-    # Convert the index of an array of 6 dim to 2 dim
-    # new_index_x = index[0] * Lx * Ly + index[1] * Lx + index[2]
-    # new_index_y = index[3] * Lx * Ly + index[4] * Lx + index[5]
-    # increse the performance of the new_index_x and new_index_y
+    """ Convert the index of an array of 6 dim to 2 dim 
+
+    Parameters
+    ----------
+    index : array of 6 dim
+        index[0] = im
+        index[1] = iy
+        index[2] = ix
+        index[3] = jm
+        index[4] = jy
+        index[5] = jx
+    M : int
+        Number of memory states
+    Ly : int
+        Number of rows
+    Lx : int
+        Number of columns
+
+    Returns
+    -------
+
+    new_index : list
+        index of the new array of 2 dim
+        [new_index_x, new_index_y]
+    
+    """
     new_index_x = Lx * ( index[0] * Ly + index[1] ) + index[2]
     new_index_y = Lx * ( index[3] * Ly + index[4] ) + index[5]
 
@@ -27,6 +72,35 @@ def index_six_to_two_2(index,M,Ly,Lx):
 
 # @profile
 def build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,action_size,p_a_mu_m_xy):
+    """ Build the sparse matrix of the transition probabilities. 
+        Initial version, not optimized.
+
+    Parameters
+    ----------
+    M : int
+        Number of memory states
+    Lx : int
+        Number of columns
+    Ly : int
+        Number of rows
+    Lx0 : float
+        Odor source position in x
+    Ly0 : float
+        Odor source position in y
+    find_range : int
+        Range of the search
+    action_size : int
+        Number of actions
+    p_a_mu_m_xy : ndarray
+        Probability of the action a, memory state mu, position x and y,
+        to end in the memory state m and position x and y
+
+    Returns
+    -------
+    Tsm_sm_sp : sparse matrix
+        Sparse matrix of the transition probabilities
+
+    """
 
     clip = lambda x, l, u: l if x < l else u if x > u else x
 
@@ -103,6 +177,35 @@ def build_Tsm_sm_sparse(M,Lx,Ly,Lx0,Ly0,find_range,action_size,p_a_mu_m_xy):
 
 # @profile
 def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,verbose=0):
+    """ Build the sparse matrix of the transition probabilities. 
+        Version 2, not optimized, general case.
+
+    Parameters
+    ----------
+    M : int
+        Number of memory states
+    Lx : int
+        Number of columns
+    Ly : int
+        Number of rows
+    Lx0 : float
+        Odor source position in x
+    Ly0 : float
+        Odor source position in y
+    find_range : int
+        Range of the search
+    action_size : int
+        Number of actions
+    p_a_mu_m_xy : ndarray
+        Probability of the action a, memory state mu, position x and y,
+        to end in the memory state m and position x and y
+
+    Returns
+    -------
+    Tsm_sm_sp : sparse matrix
+        Sparse matrix of the transition probabilities
+
+    """
 
     timing = True
     if timing:
@@ -388,7 +491,34 @@ def build_Tsm_sm_sparse_2(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
 
     return Tsm_sm_sp
 
-def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
+def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,act_hdl,verbose=0):
+    """ Build the index for transition probabilities in sparse matrix Tsm_sm_sp.
+
+    Parameters
+    ----------
+    M : int
+        Number of memory states
+    Lx : int
+        Number of columns
+    Ly : int
+        Number of rows
+    Lx0 : float
+        Odor source position in x
+    Ly0 : float
+        Odor source position in y
+    act_hdl : object
+        Object with the actions information
+    verbose : int
+        Level of verbosity
+
+    Returns
+    -------
+    full_policy_act : ndarray
+        Array with the indexes for p_a_mu_m_xy
+    full_index_matrix : ndarray
+        Array with the index of the matrix Tsm_sm_sp
+
+    """
     
     timing = False
     if timing:
@@ -399,7 +529,6 @@ def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
     clip = lambda x, l, u: l if x < l else u if x > u else x
 
     if verbose >= 1:
-        print("--- build_Tsm_sm_sparse_2 ---")
         print("M:",M,"Lx:",Lx,"Ly:",Ly,"Lx0:",Lx0,"Ly0:",Ly0)
 
     # Collector of the information of the full matrix
@@ -591,15 +720,10 @@ def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
 
                 # index_matrix_act = [ index_six_to_two(index,M,Ly,Lx) for index in index_matrix_act]
 
-                # for t, a in zip(index_matrix_act, index_policy_act):
-                #     Tsm_sm_sp[t] += p_a_mu_m_xy[a]
-
             # End for m_dir
             if timing:
                 timer_step[4] += time.time() - timer_snaps[3]
                 timer_snaps[4] = time.time()
-                
-
         # End for act
     # End for im_new
 
@@ -607,6 +731,42 @@ def set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=0):
 
 # @profile
 def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver,verbose=0):
+    """ Build the sparse matrix of the transition probabilities. 
+        Version 3, optimized without permanent allocation, general case.
+
+    Parameters
+    ----------
+    M : int
+        Number of memory states
+    Lx : int
+        Number of columns
+    Ly : int
+        Number of rows
+    Lx0 : float
+        Odor source position in x
+    Ly0 : float
+        Odor source position in y
+    find_range : int
+        Range of the search
+    action_size : int
+        Number of actions
+    p_a_mu_m_xy : ndarray
+        Probability of the action a, memory state mu, position x and y,
+        to end in the memory state m and position x and y
+    act_hdl : object
+        Object with the actions information
+    source_as_zero : list
+        List of the positions to set to zero
+    verbose : int
+        Level of verbosity
+
+
+    Returns
+    -------
+    Tsm_sm_sp : sparse matrix
+        Sparse matrix of the transition probabilities
+
+    """
 
     timing = False
     if timing:
@@ -615,7 +775,7 @@ def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
 
     # Compute only once the indexes of the matrix Tsm_sm_sp
     if solver.Tmatrix_index is None and solver.Tmatrix_p_index is None:
-        solver.Tmatrix_p_index, solver.Tmatrix_index  = set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=verbose)
+        solver.Tmatrix_p_index, solver.Tmatrix_index  = set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,act_hdl,verbose=verbose)
 
         entries = solver.Tmatrix_p_index.shape[0]
         solver.Tmatrix_index = solver.Tmatrix_index.reshape(entries,2)
@@ -685,26 +845,46 @@ def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             "Zeros", "{:.2f}".format(timer_step[4]),
             "Total:",   "{:.4f}".format(total_time))
         
-    print('*'*50)
-    # Tsm_sm_sp = Tsm_sm_sp.copy().tocsr()
-    print('Tsm_sm_3',1)
-    Tsm_sm_matrix = Tsm_sm_sp.copy().tocsr()
-    col = Tsm_sm_matrix.indices
-    row = Tsm_sm_matrix.indptr
-    data = Tsm_sm_matrix.data
-    print(col[0:10])
-    print(row[0:10])
-    print(data[0:10])
-
-    print('id:',id(Tsm_sm_sp))
-    print('*'*50)
-
-        
-
-
     return Tsm_sm_sp
 
 def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver,verbose=0):
+    """ Build the sparse matrix of the transition probabilities. 
+        Version 4, optimized with permanent allocation, general case.
+
+    Parameters
+    ----------
+    M : int
+        Number of memory states
+    Lx : int
+        Number of columns
+    Ly : int
+        Number of rows
+    Lx0 : float
+        Odor source position in x
+    Ly0 : float
+        Odor source position in y
+    find_range : int
+        Range of the search
+    action_size : int
+        Number of actions
+    p_a_mu_m_xy : ndarray
+        Probability of the action a, memory state mu, position x and y,
+        to end in the memory state m and position x and y
+    act_hdl : object
+        Object with the actions information
+    source_as_zero : list
+        List of the positions to set to zero
+    solver : object
+        Object with the solver information
+    verbose : int
+        Level of verbosity
+
+    Returns
+    -------
+    Tsm_sm_sp : sparse matrix
+        Sparse matrix of the transition probabilities
+
+    """
 
     timing = False
     if timing:
@@ -713,7 +893,7 @@ def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
 
     # Compute only once the indexes of the matrix Tsm_sm_sp
     if solver.Tmatrix_index is None and solver.Tmatrix_p_index is None:
-        solver.Tmatrix_p_index, solver.Tmatrix_index  = set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,find_range,act_hdl,verbose=verbose)
+        solver.Tmatrix_p_index, solver.Tmatrix_index  = set_index_4_Tsm_sm(M,Lx,Ly,Lx0,Ly0,act_hdl,verbose=verbose)
 
         entries = solver.Tmatrix_p_index.shape[0]
         solver.Tmatrix_index = solver.Tmatrix_index.reshape(entries,2)
@@ -760,31 +940,19 @@ def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
         solver.Tsm_sm_zero = np.array(solver.Tsm_sm_zero)
 
         # find intersection between Tsm_sm_zero and Tmatrix_index  
-        
-        A = solver.Tmatrix_index
-        nrows, ncols = A.shape
-        dtype={'names':['f{}'.format(i) for i in range(ncols)],
-            'formats':ncols * [A.dtype]}
-        
-        N_Tsm_sm = solver.Tsm_sm_sp.shape[0]
-        dim_T = np.arange(N_Tsm_sm)
-
         Tsm_sm_zero_index = np.array([],dtype=int).reshape(0,2)
-        for zero in solver.Tsm_sm_zero:
 
-            zero_x = np.full(N_Tsm_sm, zero[0])
-            zero_row = np.concatenate((zero_x[:,None],dim_T[:,None]),axis=1)
+        A = solver.Tmatrix_index
+        row_zero = solver.Tsm_sm_zero[:,0]
+        col_zero = solver.Tsm_sm_zero[:,1]
+        row_A = A[:,0]
+        col_A = A[:,1]
 
-            zero_y = np.full(N_Tsm_sm, zero[1])
-            zero_col = np.concatenate((dim_T[:,None],zero_y[:,None]),axis=1)
-        
-            C_row = np.intersect1d(A.view(dtype), zero_row.view(dtype))
-            C_col = np.intersect1d(A.view(dtype), zero_col.view(dtype))
+        inter_col = np.in1d(col_A,col_zero)
+        inter_row = np.in1d(row_A,row_zero)
 
-            C_row = C_row.view(A.dtype).reshape(-1, ncols) 
-            C_col = C_col.view(A.dtype).reshape(-1, ncols)
-
-            Tsm_sm_zero_index = np.concatenate((Tsm_sm_zero_index,C_row,C_col),axis=0)
+        Tsm_sm_zero_index = np.concatenate((Tsm_sm_zero_index,A[inter_row,:]),axis=0)
+        Tsm_sm_zero_index = np.concatenate((Tsm_sm_zero_index,A[inter_col,:]),axis=0)
 
         Tsm_sm_zero_index = np.unique(Tsm_sm_zero_index,axis=0)
 
@@ -817,28 +985,31 @@ def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
             "Zeros", "{:.2f}".format(timer_step[4]),
             "Total:",   "{:.4f}".format(total_time))
 
-    # print('*'*50)
-    # # Tsm_sm_sp = Tsm_sm_sp.copy().tocsr()
-    # print('Tsm_sm_4',1)
-    # Tsm_sm_matrix = Tsm_sm_sp
-    # col = Tsm_sm_matrix.indices
-    # row = Tsm_sm_matrix.indptr
-    # data = Tsm_sm_matrix.data
-    # print(col[0:10])
-    # print(row[0:10])
-    # print(data[0:10])
-
-    # print('id:',id(Tsm_sm_sp))
-    # print('*'*50)
-
-        
-
     return Tsm_sm_sp
-
 
 def iterative_solver_sp(T, x, b, gamma, tol, max_iter=100, verbose = False, device='cpu'):
     """
     Solve linear system using scipy sparce with jacobi method
+
+    Parameters
+    ----------
+    T : sparse matrix
+        Sparse matrix of the transition probabilities
+    x : ndarray
+        Initial values of the solution
+    b : ndarray
+        Right hand side of the linear system
+    gamma : float
+        Discount factor
+    tol : float
+        Tolerance for the convergence
+    max_iter : int
+        Maximum number of iterations
+    verbose : bool
+        Level of verbosity
+    device : str
+        Device to use
+
     """
 
     # max_iter = 0
@@ -871,6 +1042,9 @@ def iterative_solver_sp(T, x, b, gamma, tol, max_iter=100, verbose = False, devi
     return x, success
 
 def load_scipy():
+    """
+    Load scipy sparse matrix
+    """
 
     eta_petsc = None
 
@@ -1037,6 +1211,9 @@ def load_scipy():
     return eta_scipy_sparse_solve,eta_scipy_sparse_solve_jacobi
 
 def load_petsc():
+    """
+    Load petsc4py
+    """
     # ----------------------------------------------------------------------------
     # Try to import petsc4py
     petsc4py_available = False
@@ -1450,10 +1627,11 @@ def load_cupy():
             to_invert = cusparse.eye(M*Ly*Lx) - gamma * Tsm_sm_matrix_cupy
 
             if tol == -1 :
-                new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
-            else:            
-                new_eta_cupy, info =  cusparse.linalg.gmres(to_invert, rho0_cupy, x0=eta_cupy, tol=tol)
+            #     new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
+            # else:            
+                new_eta_cupy, info =  cusparse.linalg.gmres(to_invert, rho0_cupy, x0=eta_cupy, tol=tol,maxiter=10000)
                 if info != 0 :
+                    new_eta_cupy = cusparse.linalg.spsolve(to_invert,rho0_cupy)
                     print("info:",info)
 
         new_eta = cp.asnumpy(new_eta_cupy)
@@ -1502,7 +1680,7 @@ def load_numpy_inv():
     eta_petsc = None
 
     # ----------------------------------------------------------------------------
-    def eta_numpy_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='gpu',verbose=False):
+    def eta_numpy_solve(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly, tol, max_iter, device='cpu',verbose=False):
         """
         Solve linear system using cupy scipy sparce
         """
@@ -1571,7 +1749,7 @@ def load_numpy():
     eta_petsc = None
 
     # ----------------------------------------------------------------------------
-    def eta_numpy_solve(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,device='cpu',verbose=False):
+    def eta_numpy_solve(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly, tol, max_iter, device='cpu',verbose=False):
         """
         Solve linear system using cupy scipy sparce
         """
@@ -1643,7 +1821,7 @@ def load_torch_inv():
     
     eta_petsc = None
     # ----------------------------------------------------------------------------
-    def eta_torch(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
+    def eta_torch(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly, tol, max_iter, device='gpu',verbose=False):
         """
         Invert a matrix using torch
         """
@@ -1708,7 +1886,7 @@ def load_torch():
     
     eta_petsc = None
     # ----------------------------------------------------------------------------
-    def eta_torch(Tsm_sm_matrix,gamma,M,Lx,Ly,rho0,verbose=False,device='gpu'):
+    def eta_torch(Tsm_sm_matrix, eta, rho0, gamma, M, Lx, Ly, tol, max_iter, device='gpu',verbose=False):
         """
         Invert a matrix using torch
         """

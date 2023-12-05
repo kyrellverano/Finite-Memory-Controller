@@ -92,6 +92,17 @@ np.random.seed(33+33)
 def set_parameters_from_file(input_file):
     """
     Read input file and return a dictionary with the parameters
+
+    Parameters
+    ----------
+    input_file : str
+        Name of the input file
+
+    Returns
+    -------
+    params : dict
+        Dictionary with the parameters
+
     """
     if mpi_rank == 0 :
         params = json.load(open(input_file))
@@ -115,6 +126,7 @@ def set_parameters_from_file(input_file):
 # Optimization function
 # @profile
 def optimize(fsc):
+
         
     # ----------------------------------------------------------------------------
     if mpi_rank == 0:
@@ -132,17 +144,7 @@ def optimize(fsc):
         f = open(name_folder+"/values.dat", "a")
     
         # Save parameters to file
-        param = {}
-        param.update(fsc.agent.__dict__)
-        param.update(fsc.env.__dict__)
-        param.update(fsc.plume.__dict__)
-        param.update(fsc.optim.__dict__)
-        param.pop('act_hdl')
-        param.pop('factor_dim')
-        with open(name_folder+'/input.dat', 'w') as fp:
-            json.dump(param, fp)
-
-        print(param)
+        utils.save_parameters(fsc, name_folder)
 
     # ----------------------------------------------------------------------------
         #INITIALIZATIONS
@@ -239,7 +241,7 @@ def optimize(fsc):
         # Init the initial value
         value = 0
         oldvalue = value
-        ratio_change = 1.0
+        ratio_change = np.ones((2,), dtype=np.float64)
     # ----------------------------------------------------------------------------
         # END INITIALIZATIONS
     # ----------------------------------------------------------------------------
@@ -264,6 +266,9 @@ def optimize(fsc):
     #OPTIMIZATION
 # ----------------------------------------------------------------------------
 
+    print('-'*77)
+    print('Starting optimization')
+    print('-'*77)
     time_opt = time.time()
     verbose_eta = True
     time_step = np.zeros(fsc.optim.Nprint)
@@ -336,12 +341,15 @@ def optimize(fsc):
         # Check convergence 
         if mpi_rank == 0:
             value =  utils.get_value(Q, pi, PObs_lim, fsc.env.L, rho0)
-            ratio_change = abs((value-oldvalue)/value)
+            ratio_change[1] = ratio_change[0]
+            ratio_change[0] = abs((value-oldvalue)/value)
+            # ratio_change = abs((value-oldvalue)/value)
+            ratio_change_avg = np.mean(ratio_change)
 
             oldvalue = value
             verbose_eta = False
 
-            if (ratio_change < fsc.optim.tol_conv) and ( fsc.optim.minimum_iter < t ):
+            if (ratio_change_avg < fsc.optim.tol_conv) and ( fsc.optim.minimum_iter < t ):
                 convergence = 1
         
         if mpi_size > 1:
@@ -358,23 +366,24 @@ def optimize(fsc):
             
             th += grad * lr_th / np.max(np.abs(grad)) # (t / Ntot + 0.5) #rescaled gradient
             th -= np.max(th, axis=2, keepdims=True)
-            th = np.clip(th, -20, 0)
+            # th = np.clip(th, -20, 0)
+            th = np.clip(th, -fsc.agent.AxM, 0)
 
         
         # Print and check convergence
         if (t % fsc.optim.Nprint == 0) and (mpi_rank == 0):
 
-            print('lr_th: {:.5f}'.format(lr_th))
-            print('tol_eta: {:.5f} | tol_Q: {:.5f}'.format(fsc.optim.tol_eta, fsc.optim.tol_Q))
+            print('lr_th: {:.5f}'.format(lr_th), end=' | ')
+            print('tol_eta: {:f} | tol_Q: {:f}'.format(fsc.optim.tol_eta, fsc.optim.tol_Q))
 
             time_step[ t % fsc.optim.Nprint] = time.time() - time_start
-            print('step:{:5d} |  current value: {:.7f} | ratio value : {:.7f}'.format(t, value, ratio_change), end=' | ')
+            print('step: {:5d} |  current value: {:.7f} | ratio value : {:.7f}'.format(t, value, ratio_change_avg), end=' | ')
             # Print times
-            print('time eta:{:10.3f}'.format(time_eta-time_start), end=' | ')
-            print('time Q:{:10.3f}'.format(time_Q-time_eta), end=' || ')
-            print('avg time:{:10.3f}'.format(np.mean(time_step)), end=' | ')
-            print('std dev:{:10.3f}'.format(np.std(time_step)), end=' | ')
-            print('time total:{:10.3f}'.format(np.sum(time_step)),flush=True)
+            print('time eta: {:10.3f}'.format(time_eta-time_start), end=' | ')
+            print('time Q: {:10.3f}'.format(time_Q-time_eta), end=' || ')
+            print('avg time: {:10.3f}'.format(np.mean(time_step)), end=' | ')
+            print('std dev: {:10.3f}'.format(np.std(time_step)), end=' | ')
+            print('time total: {:10.3f}'.format(np.sum(time_step)),flush=True)
 
             print('-'*77)
             
