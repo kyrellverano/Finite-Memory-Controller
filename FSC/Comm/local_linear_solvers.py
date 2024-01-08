@@ -1034,7 +1034,7 @@ def iterative_solver_sp(T, x, b, gamma, tol, max_iter=100, verbose = False, devi
 
         if (delta.max() < tol2): 
             success = True
-            print('Converged in {} iterations'.format(i))
+            # print('Converged in {} iterations'.format(i))
             return new_x_sp, success
 
         x_sp = new_x_sp.copy()

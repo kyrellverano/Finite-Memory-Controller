@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 
 import time 
 from tqdm import tqdm
+import concurrent.futures
 
 # Linear solvers
 import fast_sparce_multiplications_2D as fast_mult
@@ -97,7 +98,7 @@ class solver_opt:
         if solver == None:
             solver = 'scipy'
 
-        if solver == 'scipy' :
+        elif solver == 'scipy' :
             load_info = load_scipy()
             self.function_solver_direct = load_info[0]
             self.function_solver_iter = load_info[1]
@@ -348,6 +349,8 @@ class parameters_environment:
         Range of the agent to find the source.
     sigma : float
         Standard deviation of the gaussian of the source.
+    L : int
+        Size of the environment.
 
     Methods
     -------
@@ -376,7 +379,9 @@ class parameters_environment:
         self.factor_dim = json_file.get('factor_dim',self.factor_dim)
 
         self.Ly  = json_file.get('Ly',self.Ly) * self.factor_dim
+        self.Ly  = int(self.Ly)
         self.Lx  = json_file.get('Lx',self.Lx) * self.factor_dim
+        self.Lx  = int(self.Lx)
 
         self.Ly0 = json_file.get('Ly0',self.Ly0) * self.factor_dim
         self.Lx0 = self.Lx / 2.
@@ -384,7 +389,7 @@ class parameters_environment:
         self.find_range = json_file.get('find_range',self.find_range)
         self.sigma = json_file.get('sigma',self.sigma)
 
-        self.L = self.Lx * self.Ly
+        self.L = int(self.Lx * self.Ly)
 
 class parameters_plume:
     """ Class to handle the parameters of the plume.
@@ -408,7 +413,7 @@ class parameters_plume:
     beta : int
         Beta of the plume.
     plume_stat : str
-        Statistics of the plume.
+        Statistics of the plume. "Bernoulli" or "Poisson"
     experimental : bool
         Use experimental data for the plume.
     adjust_factor : float
@@ -453,7 +458,7 @@ class parameters_plume:
         self.beta = json_file.get('beta',self.beta)
 
         self.plume_stat = json_file.get('plume_stat',self.plume_stat)
-        self.experimental = json_file.get('exp_plume',self.experimental)
+        self.experimental = json_file.get('experimental',self.experimental)
 
         if json_file.get("adjust_factor",self.adjust_factor) == 'auto':
             self.adjust_factor = Lx/75
@@ -550,7 +555,7 @@ def create_output_folder_name(fsc, method, lib_solve_linear_system):
             Name of the output folder.
 
         """
-        name_folder = 'ExpPlume_'
+        name_folder = 'FSC_'
         name_folder += f'Agent_'
         name_folder += f'A{fsc.agent.A}'
         name_folder += f'M{fsc.agent.M}'
@@ -569,7 +574,7 @@ def create_output_folder_name(fsc, method, lib_solve_linear_system):
         name_folder += f'_Opt_'
         name_folder += f'mth-{method}'
         name_folder += f'slvr-{lib_solve_linear_system}'
-        name_folder += f'fac-{fsc.env.factor_dim}'
+        name_folder += f'Ntot{fsc.optim.Ntot}'
 
         return name_folder
 
@@ -611,11 +616,11 @@ def print_parameters(fsc,method,lib_solve_linear_system,device):
     print("-"*50)
     # print plume parameters
     print("Plume parameters:")
+    print("Experimental: ",fsc.plume.experimental)
+    print("D: ",fsc.plume.D,"   V: ",fsc.plume.V,"   Tau: ",fsc.plume.tau,"   Beta: ",fsc.plume.beta)
     print("Coarse: ",fsc.plume.coarse,"   Dth: ",fsc.plume.dth)
     print("Symmetry: ",fsc.plume.symmetry,"   Replica: ",fsc.plume.replica)
-    print("D: ",fsc.plume.D,"   V: ",fsc.plume.V,"   Tau: ",fsc.plume.tau,"   Beta: ",fsc.plume.beta)
-    print("Plume stat: ",fsc.plume.plume_stat,"   Experimental: ",fsc.plume.experimental)
-    print("Adjust factor: ",fsc.plume.adjust_factor)
+    print("Plume stat: ",fsc.plume.plume_stat,"   Adjust factor: ",fsc.plume.adjust_factor)
     print("-"*50)
     # print optimization parameters
     print("Optimization parameters:")
@@ -627,7 +632,7 @@ def print_parameters(fsc,method,lib_solve_linear_system,device):
     print("Folder restart:",fsc.optim.folder_restart)
     print("-"*50)
 
-def get_max_value(Lx, Ly, Lx0, Ly0, find_range, rho0, gamma):
+def get_max_value(Lx, Ly, Lx0, Ly0, M, find_range, rho0, gamma):
     """ Print the maximum value can be obtained. 
 
     Parameters
@@ -648,16 +653,18 @@ def get_max_value(Lx, Ly, Lx0, Ly0, find_range, rho0, gamma):
         Discount factor of the agent.
 
     """
+    rho_map = rho0.reshape((Ly,Lx,M))
+    rho_map = rho_map[:,:,0]
     max_value = []
     for x in range(Lx):
         for y in range(Ly):
 
-            if rho0[y*Lx+x] < 1e-10:
+            if rho_map[y,x] < 1e-10:
                 continue
             
             short_path = int(np.abs(x-Lx0) + np.abs(y-Ly0) - find_range)
             discount = -np.sum([gamma**i * (1.0 - gamma) for i in range(short_path)])
-            max_value.append(discount*rho0[y*Lx+x])
+            max_value.append(discount*rho_map[y,x])
 
     print("Avg max value: {:.8f}".format(np.sum(max_value)))
     print("-"*50)
@@ -797,7 +804,6 @@ def create_plume_from_exp(Lx, Ly, Lx0, Ly0, cmax, data):
     new_size_y = Ly
     
     exp_Lx, exp_Ly = exp_plume_mat.shape 
-    print('exp_plume_mat.shape',exp_plume_mat.shape)
     
     assert Ly0+10 <= exp_Ly, 'Size of experimental plume too small' 
     
@@ -1020,7 +1026,7 @@ def iterative_solve_eta(agent, env, optim, pi, PObs_lim, rho0, eta0):
         # if (i%1 == 0):
         delta = np.max((new_eta-eta)*(new_eta-eta))
         if (delta < tol2): 
-            print('Converged in {} iterations'.format(i))
+            # print('Converged in {} iterations'.format(i))
             return new_eta
         #if ((i+1)%1000 == 0):
         #    print('eta: i {}, delta {}'.format(i, delta))
@@ -1090,7 +1096,7 @@ def iterative_solve_Q(agent, env, optim, pi, PObs_lim, RR, Q0):
             delta = (new_Q-Q)
             delta = np.max(delta*delta)
             if ( delta < tol2): 
-                print('Converged in {} iterations'.format(i))
+                # print('Converged in {} iterations'.format(i))
                 return new_Q
         #if ((i+1)%1000 == 0):
         #    print('Q: i {}, delta {}, tol^2 {}'.format(i, delta, tol2))
@@ -1657,7 +1663,10 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, Tmax, PObs, rho0, act_hdl,
     
     O, M, a_size = pi.shape
     m = 0
-    s = np.random.choice(Lx*Ly, p=rho0[:Lx*Ly])
+    rho_map = rho0.reshape((Ly,Lx,M))
+    rho_map = rho_map.sum(axis=2)
+
+    s = np.random.choice(Lx*Ly, p=rho_map.flatten())
     x , y = (s%Lx, s//Lx)
     
     done = False
@@ -1706,3 +1715,27 @@ def single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, Tmax, PObs, rho0, act_hdl,
         pbar.close()
         
     return trj, success, time_steps
+
+def compute_trajectory_single(i, pi, Lx, Ly, Lx0, Ly0, find_range, maxT, PObs_lim, rho0, act_hdl):
+    _, result, trj_steps = single_traj_obs(pi, Lx, Ly, Lx0, Ly0, find_range, maxT, PObs_lim, rho0, act_hdl, progress_bar=False, save_traj=False)
+    return result, trj_steps
+
+def compute_trajectory_future(pi, Lx, Ly, Lx0, Ly0, find_range, maxT, PObs_lim, rho0, act_hdl, Nep=10):
+    av_ret = 0
+    Total_trj = []
+
+    pbar = tqdm(total=Nep, desc='Success Rate: {:.3f}%'.format(0), position=0, leave=True)
+
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+    # with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(compute_trajectory_single, i, pi, Lx, Ly, Lx0, Ly0, find_range, maxT, PObs_lim, rho0, act_hdl) for i in range(Nep)]
+
+        for future in concurrent.futures.as_completed(futures):
+            result, trj_steps = future.result()
+            av_ret += result
+            Total_trj.append(trj_steps)
+
+            pbar.update(1)
+            pbar.set_description('Success Rate: {:.3f}%'.format(100*av_ret / (len(Total_trj))))
+
+    return av_ret, Total_trj

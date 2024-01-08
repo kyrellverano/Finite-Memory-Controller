@@ -5,10 +5,10 @@
 # LastUpdate: 2019-09-16
 #
 # Reference:
-#
+# https://doi.org/10.1073/pnas.2304230120
 # ----------------------------------------------------------------------------
 # Contributors: LuisAlfredoNu <luis.alfredo.nu@gmail.com>
-# LastUpdate: 2023-08-25
+# LastUpdate: 2023-12-21
 # ----------------------------------------------------------------------------
 #
 # Usage: python optimize.py -h
@@ -24,10 +24,14 @@ import time
 
 import numpy as np
 import itertools as it
-from scipy.special import softmax as softmax
+from scipy.special import softmax
 from scipy import interpolate
 
-sys.path.append('../Comm/')
+# Path to the comm folder
+file_path = os.path.realpath(__file__)
+file_path = os.path.dirname(os.path.dirname(file_path))
+file_path += '/Comm/'
+sys.path.append(file_path)
 import utils as utils
 
 
@@ -38,7 +42,7 @@ parser.add_argument('--input_file', type=str,
                     help='Input file with parameters')
 
 parser.add_argument('--method', type=str, 
-                    choices=['direct', 'iter','experimental'],
+                    choices=['direct', 'iter'],
                     default='direct',
                     help='Method to solve the linear system')
 parser.add_argument('--lib_solver', type=str,
@@ -85,7 +89,7 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=1000)
 
 # Fix the seed for reproducibility
-np.random.seed(33+33)
+# np.random.seed(33+33+33)
 
 # ----------------------------------------------------------------------------
 # Read input file and set parameters
@@ -139,6 +143,7 @@ def optimize(fsc):
         if args.output_dir != '':
             name_folder = args.output_dir + '_' + name_folder
         os.makedirs(name_folder, exist_ok=True)
+        print('Saving results in:\n{}'.format(name_folder))
         
         # Create file to save values
         f = open(name_folder+"/values.dat", "a")
@@ -150,13 +155,13 @@ def optimize(fsc):
         #INITIALIZATIONS
     # ----------------------------------------------------------------------------
     # Load experimental data
-    if mpi_rank == 0:
+    if mpi_rank == 0 and fsc.plume.experimental:
         if fsc.plume.symmetry == 0:
-            data=np.loadtxt('data/exp_plume_threshold{}.dat'.format(fsc.plume.dth))
+            data=np.loadtxt('../Comm/data/exp_plume_threshold{}.dat'.format(fsc.plume.dth))
         if fsc.plume.symmetry == 1:
-            data=np.loadtxt('data/exp_plume_symmetric_threshold{}.dat'.format(fsc.plume.dth))
+            data=np.loadtxt('../Comm/data/exp_plume_symmetric_threshold{}.dat'.format(fsc.plume.dth))
         if fsc.plume.coarse == 1:
-            data=np.loadtxt('data/exp_plume_symmetric_coarse_threshold{}.dat'.format(fsc.plume.dth))
+            data=np.loadtxt('../Comm/data/exp_plume_symmetric_coarse_threshold{}.dat'.format(fsc.plume.dth))
     else:
         data=None
 
@@ -246,7 +251,7 @@ def optimize(fsc):
         # END INITIALIZATIONS
     # ----------------------------------------------------------------------------
         # Print the max value to achieve
-        utils.get_max_value(fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.env.find_range, rho0, fsc.agent.gamma)
+        utils.get_max_value(fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.agent.M, fsc.env.find_range, rho0, fsc.agent.gamma)
 
 
     if mpi_rank != 0:
@@ -269,18 +274,15 @@ def optimize(fsc):
     print('-'*77)
     print('Starting optimization')
     print('-'*77)
-    time_opt = time.time()
     verbose_eta = True
-    time_step = np.zeros(fsc.optim.Nprint)
+    time_opt = time.time()
+    # Arrays to save the computation time
+    time_step = np.zeros((fsc.optim.Nprint,4))
+    # Save progress every 10% of the total iterations
+    save_progress = fsc.optim.Ntot // 10 or 1 
 
     if fsc.agent.lr_th == 'auto':
         # Learning rate schedule
-        lr_val =  [0.1, 0.01, 0.001 , 0.0001]
-        lr_time = [0.0, 0.1 , 0.8   , 1.0]
-        
-        lr_val = [0.1, 0.01, 0.0001,0.0001]
-        lr_time = [0.0, 0.01, 0.8, 1.0]
-
         lr_val = fsc.agent.lr_val
         lr_time = fsc.agent.lr_time_frac
 
@@ -288,19 +290,10 @@ def optimize(fsc):
         lr_time = np.linspace(0.0, 1.0, num=fsc.optim.Ntot)
         lr_values = lr_val(lr_time)
 
-        # def lr_descent(start,last,step):
-        #     nsteps = step[-1] - step[0]
-        #     step = step - step[0]
-        #     alpha = (start - last ) / (nsteps * last) 
-        #     return 1.0 / (1.0 + alpha * step * 1) * start 
-
-        # lr_values = np.array([])
-        # for i in range(1,len(lr_rate)):
-        #     lr_values = np.concatenate((lr_values,lr_descent(lr_rate[i-1],lr_rate[i],np.arange(steps[i-1],steps[i]))))
     else:
         lr_values = np.ones(fsc.optim.Ntot)*fsc.agent.lr_th
 
-
+    # Save the initial tolerance for the iterative method
     init_direct = fsc.optim.init_direct
     save_tol_eta = fsc.optim.tol_eta
     save_tol_Q = fsc.optim.tol_Q
@@ -315,8 +308,9 @@ def optimize(fsc):
     convergence = 0
     for t in range(fsc.optim.Ntot):
 
-        # Time counter
-        time_start = time.time()
+        # Timer
+        timer_step = t % fsc.optim.Nprint
+        time_step[timer_step,0] = time.time()
 
         if init_direct == t:
             fsc.optim.tol_eta = save_tol_eta
@@ -325,18 +319,23 @@ def optimize(fsc):
         if method_select == 'direct':
             # Direct linear system solution
             eta, T = utils.linear_solve_eta(fsc.agent, fsc.env, fsc.optim, eta, rho0, pi, PObs_lim, source_as_zero,solver=solver,verbose=verbose_eta)
-            time_eta = time.time()
+            # time eta
+            time_step[timer_step,1] = time.time()
+
             V, Q = utils.linear_solve_Q(fsc.agent, fsc.env, fsc.optim, T, V, RR_np, source_as_zero, solver=solver)
-            time_Q = time.time()
+            # time Q
+            time_step[timer_step,2] = time.time()
+
 
         elif method_select == 'iter':
-            print('method: {}'.format(method_select))
             # Iterative solutions of linear system
             eta = utils.iterative_solve_eta(fsc.agent, fsc.env, fsc.optim, pi, PObs_lim, rho0, eta)
+            # time eta
+            time_step[timer_step,1] = time.time()
 
-            time_eta = time.time()
             Q = utils.iterative_solve_Q(fsc.agent, fsc.env, fsc.optim, pi, PObs_lim, RR, Q)
-            time_Q = time.time()
+            # time Q
+            time_step[timer_step,2] = time.time()
 
         # Check convergence 
         if mpi_rank == 0:
@@ -364,26 +363,52 @@ def optimize(fsc):
             # Reset value for new iteration afterwards
             lr_th = lr_values[t]
             
+            # Apply gradient descent
             th += grad * lr_th / np.max(np.abs(grad)) # (t / Ntot + 0.5) #rescaled gradient
             th -= np.max(th, axis=2, keepdims=True)
             # th = np.clip(th, -20, 0)
             th = np.clip(th, -fsc.agent.AxM, 0)
 
+            # Policy update
+            pi = softmax(th, axis=2)
+        
+
+        # --------------------------------------------------------
+        # --------------------------------------------------------
+        # Save optimization progress
+        if (t % save_progress == 0) and (mpi_rank == 0):
+            np.savetxt(name_folder + '/file_theta.out', th.reshape(-1))
+            np.savetxt(name_folder + '/file_V.out', V.reshape(-1))
+            np.savetxt(name_folder + '/file_Q.out', Q.reshape(-1))
+            np.savetxt(name_folder + '/file_eta.out', eta.reshape(-1))
+
+        # Time step
+        time_step[timer_step,3] = time.time() 
         
         # Print and check convergence
         if (t % fsc.optim.Nprint == 0) and (mpi_rank == 0):
 
-            print('lr_th: {:.5f}'.format(lr_th), end=' | ')
-            print('tol_eta: {:f} | tol_Q: {:f}'.format(fsc.optim.tol_eta, fsc.optim.tol_Q))
 
-            time_step[ t % fsc.optim.Nprint] = time.time() - time_start
+            print('lr_th: {:.5f}'.format(lr_th), end=' | ')
+            if init_direct > t:
+                print('direct method')
+            else:
+                print('mix methods', end=' | ')
+                print('tol_eta: {:.2e} | tol_Q: {:.2e}'.format(fsc.optim.tol_eta, fsc.optim.tol_Q))
+
             print('step: {:5d} |  current value: {:.7f} | ratio value : {:.7f}'.format(t, value, ratio_change_avg), end=' | ')
+            
             # Print times
-            print('time eta: {:10.3f}'.format(time_eta-time_start), end=' | ')
-            print('time Q: {:10.3f}'.format(time_Q-time_eta), end=' || ')
-            print('avg time: {:10.3f}'.format(np.mean(time_step)), end=' | ')
-            print('std dev: {:10.3f}'.format(np.std(time_step)), end=' | ')
-            print('time total: {:10.3f}'.format(np.sum(time_step)),flush=True)
+            time_eta = np.sum(time_step[:,1] - time_step[:,0])
+            print('time eta: {:10.3f}'.format(time_eta), end=' | ')
+            
+            time_Q = np.sum(time_step[:,2] - time_step[:,1])
+            print('time Q: {:10.3f}'.format(time_Q), end=' || ')
+
+            total_time = time_step[:,3] - time_step[:,0]
+            # print('avg time: {:10.3f}'.format(np.mean(total_time)), end=' | ')
+            # print('std dev: {:10.3f}'.format(np.std(total_time)), end=' | ')
+            print('time total: {:10.3f}'.format(np.sum(total_time)),flush=True)
 
             print('-'*77)
             
@@ -391,22 +416,9 @@ def optimize(fsc):
             f.write('current value: {} @ time:{} \n'.format(value, t))
             f.flush()
 
-
-        #if (t % (Nprint*10) == 0):
-        #    np.savetxt(name_folder + '/file_theta{}.out'.format(t), th.reshape(-1))
-        #    np.savetxt(name_folder + '/file_Q{}.out'.format(t), Q.reshape(-1))
-        #    np.savetxt(name_folder + '/file_eta{}.out'.format(t), eta.reshape(-1))
-        if (t % (fsc.optim.Nprint * 10 ) == 0) and (mpi_rank == 0):
-            np.savetxt(name_folder + '/file_theta.out', th.reshape(-1))
-            np.savetxt(name_folder + '/file_Q.out', Q.reshape(-1))
-            np.savetxt(name_folder + '/file_eta.out', eta.reshape(-1))
-
         if convergence == 1:
             break
 
-        if mpi_rank == 0:
-            # Policy update
-            pi = softmax(th, axis=2)
     # End for loop optimization
     # ----------------------------------------------------------------------------
     if solver.use_petsc:
