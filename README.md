@@ -15,6 +15,13 @@ conda install -c jmcmurray matplotlib
 ``` 
 This code have the possibility to use PETSc for parallelization.
 For use PETSc, you need to install it first. You can follow the instructions here: [petsc4py](https://petsc.org/release/petsc4py/install.html)
+We recommend to use the pip installation. 
+```
+pip install --user mpi4py
+export PETSC_CONFIGURE_OPTIONS=' --with-cuda=0 --with-debugging=0 --download-superlu --download-superlu_dist --download-parmetis --download-metis --download-ptscotch COPTFLAGS="-O3 " CXXOPTFLAGS="-O3 " FOPTFLAGS="-O3 "
+pip install --user petsc # this will take a while
+pip install --user petsc4py
+```
 
 Then, go to the directory where your codes are: `cd FSC_NB` or `cd FSC_PS` then compile the fortran script by running the following:
 ```
