@@ -30,7 +30,7 @@ from scipy import interpolate
 # Path to the comm folder
 file_path = os.path.realpath(__file__)
 file_path = os.path.dirname(os.path.dirname(file_path))
-file_path += '/Comm/'
+file_path += '/FSC_requisites/'
 sys.path.append(file_path)
 import utils as utils
 
@@ -157,11 +157,11 @@ def optimize(fsc):
     # Load experimental data
     if mpi_rank == 0 and fsc.plume.experimental:
         if fsc.plume.symmetry == 0:
-            data=np.loadtxt('../Comm/data/exp_plume_threshold{}.dat'.format(fsc.plume.dth))
+            data=np.loadtxt(file_path + 'data/exp_plume_threshold{}.dat'.format(fsc.plume.dth))
         if fsc.plume.symmetry == 1:
-            data=np.loadtxt('../Comm/data/exp_plume_symmetric_threshold{}.dat'.format(fsc.plume.dth))
+            data=np.loadtxt(file_path + 'data/exp_plume_symmetric_threshold{}.dat'.format(fsc.plume.dth))
         if fsc.plume.coarse == 1:
-            data=np.loadtxt('../Comm/data/exp_plume_symmetric_coarse_threshold{}.dat'.format(fsc.plume.dth))
+            data=np.loadtxt(file_path + 'data/exp_plume_symmetric_coarse_threshold{}.dat'.format(fsc.plume.dth))
     else:
         data=None
 
@@ -246,7 +246,7 @@ def optimize(fsc):
         # Init the initial value
         value = 0
         oldvalue = value
-        ratio_change = np.ones((2,), dtype=np.float64)
+        ratio_change = np.ones((3,), dtype=np.float64)
     # ----------------------------------------------------------------------------
         # END INITIALIZATIONS
     # ----------------------------------------------------------------------------
@@ -271,9 +271,10 @@ def optimize(fsc):
     #OPTIMIZATION
 # ----------------------------------------------------------------------------
 
-    print('-'*77)
-    print('Starting optimization')
-    print('-'*77)
+    if mpi_rank == 0:
+        print('-'*77)
+        print('Starting optimization')
+        print('-'*77)
     verbose_eta = True
     time_opt = time.time()
     # Arrays to save the computation time
@@ -304,6 +305,10 @@ def optimize(fsc):
 
     # set steps for choose iter or direct
     method_select = method
+    method_label = ['direct', 'mixed']
+    if method_select == 'iter':
+        method_label = ['Fortran iterative', 'Fortran iterative']
+        init_direct = 0 # no direct method
 
     convergence = 0
     for t in range(fsc.optim.Ntot):
@@ -340,6 +345,7 @@ def optimize(fsc):
         # Check convergence 
         if mpi_rank == 0:
             value =  utils.get_value(Q, pi, PObs_lim, fsc.env.L, rho0)
+            ratio_change[2] = ratio_change[1]
             ratio_change[1] = ratio_change[0]
             ratio_change[0] = abs((value-oldvalue)/value)
             # ratio_change = abs((value-oldvalue)/value)
@@ -388,12 +394,11 @@ def optimize(fsc):
         # Print and check convergence
         if (t % fsc.optim.Nprint == 0) and (mpi_rank == 0):
 
-
             print('lr_th: {:.5f}'.format(lr_th), end=' | ')
             if init_direct > t:
-                print('direct method')
+                print('method',method_label[0])
             else:
-                print('mix methods', end=' | ')
+                print('method',method_label[1], end=' | ')
                 print('tol_eta: {:.2e} | tol_Q: {:.2e}'.format(fsc.optim.tol_eta, fsc.optim.tol_Q))
 
             print('step: {:5d} |  current value: {:.7f} | ratio value : {:.7f}'.format(t, value, ratio_change_avg), end=' | ')

@@ -327,7 +327,7 @@ def plot_trajectory(trj, result, PObs_lim, fsc, show=True, save=False, save_path
 
     trj_steps = len(trj)
 
-    cdict = {2: 'orange', 0: 'mediumseagreen', 1: 'crimson', 3:'blue'}
+    cdict = ['Blue', 'Green', 'Orange', 'Red', 'Purple', 'Grey', 'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu', 'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn']
 
     # Get the position of the observations
     loc_obs = np.where(observation == 1)

@@ -25,17 +25,13 @@ import os
 import numpy as np
 import itertools as it
 from scipy.special import softmax as softmax
-from statistics import median
-import matplotlib.pyplot as plt
 
 import time as time
-from tqdm import tqdm
-import concurrent.futures
 
 # Path to the comm folder
 file_path = os.path.realpath(__file__)
 file_path = os.path.dirname(os.path.dirname(file_path))
-file_path += '/Comm/'
+file_path += '/FSC_requisites/'
 sys.path.append(file_path)
 import utils as utils
 import fsc_visualize_tools as fsc_visual
@@ -78,11 +74,11 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------------
     # Load experimental data
     if fsc.plume.symmetry == 0:
-        data=np.loadtxt('data/exp_plume_threshold{}.dat'.format(fsc.plume.dth))
+        data=np.loadtxt('../FSC_requisites/data/exp_plume_threshold{}.dat'.format(fsc.plume.dth))
     if fsc.plume.symmetry == 1:
-        data=np.loadtxt('data/exp_plume_symmetric_threshold{}.dat'.format(fsc.plume.dth))
+        data=np.loadtxt('../FSC_requisites/data/exp_plume_symmetric_threshold{}.dat'.format(fsc.plume.dth))
     if fsc.plume.coarse == 1:
-        data=np.loadtxt('data/exp_plume_symmetric_coarse_threshold{}.dat'.format(fsc.plume.dth))
+        data=np.loadtxt('../FSC_requisites/data/exp_plume_symmetric_coarse_threshold{}.dat'.format(fsc.plume.dth))
 
     # Load optimization data
     th = np.loadtxt(directory + '/file_theta.out')
@@ -149,7 +145,7 @@ if __name__ == "__main__":
 
     # Plot the trajectory of the agent
     print('Plotting trajectory...')
-    fsc_visual.plot_trajectory(trj, result, PObs_lim, fsc, show=False, save=False, save_path=directory)
+    fsc_visual.plot_trajectory(trj, result, PObs_lim, fsc, show=False, save=True, save_path=directory)
 
     # Validation of the policy
     print('Validation of the policy...')
