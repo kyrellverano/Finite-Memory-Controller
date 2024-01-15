@@ -11,6 +11,12 @@ import concurrent.futures
 # Linear solvers
 # import fast_sparce_multiplications_2D_find_efficient as fast_mult
 import fast_sparce_multiplications_2D as fast_mult
+import local_linear_solvers
+from local_linear_solvers import *
+
+import importlib
+importlib.reload(fast_mult)
+importlib.reload(local_linear_solvers)
 from local_linear_solvers import *
 
 
@@ -141,6 +147,7 @@ class solver_opt:
             self.x = None
             self.ones = None
             self.ksp = None
+            self.transpose = False
 
         elif solver == 'cupy':
             load_info = load_cupy()
@@ -627,6 +634,7 @@ def print_parameters(fsc,method,lib_solve_linear_system,device):
     print('method: {}   solver: {}   device: {}'.format(method,lib_solve_linear_system,device))
     print("Ntot:",fsc.optim.Ntot,"   Nprint:",fsc.optim.Nprint)
     print("Tol_conv:",fsc.optim.tol_conv, "   minimum_step:",fsc.optim.minimum_iter)
+    print("Init_direct:",fsc.optim.init_direct,"   Max_iter_method:",fsc.optim.max_iter_method)
     print("Tol_eta:",fsc.optim.tol_eta, "   Tol_Q:",fsc.optim.tol_Q)
     print("new_policy:",fsc.optim.new_policy, "   unbias:",fsc.optim.unbias)
     print("Folder restart:",fsc.optim.folder_restart)
@@ -1437,12 +1445,8 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
         timer_step[0] = time.time()
 
     if solver.mpi_rank == 0:
-
         reward = reward.reshape(M*Ly*Lx)
-
-        Tsm_sm_matrix = Tsm_sm_matrix_sp.transpose()
-        Tsm_sm_matrix = Tsm_sm_matrix.tocsr().copy()
-
+        Tsm_sm_matrix = Tsm_sm_matrix_sp.copy().tocsr()
         action_size = act_hdl.A
     else:
         Tsm_sm_matrix = None
@@ -1453,14 +1457,22 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
         timer_step[1] = time.time()
     if solver.solver_type_V == 'iter':
         if solver.use_petsc:
+            solver.transpose = True
             V = solver.function_solver_iter(Tsm_sm_matrix,V,gamma,action_size,M,Lx,Ly,reward,solver.ksp_type,solver.pc_type,solver,device=solver.device)
+            solver.transpose = True
         else :
+            Tsm_sm_matrix = Tsm_sm_matrix.transpose()
             V = solver.function_solver_iter(Tsm_sm_matrix,V,gamma,M,Lx,Ly,reward,device=solver.device)
 
     if solver.solver_type_V == 'direct':
         if solver.use_petsc:
+            solver.transpose = True
+            # The transpose of Tsm_sm_matrix is doing by PETSc
             V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, action_size, M, Lx, Ly, tol, max_iter,solver.ksp_type, solver.pc_type, solver, device=solver.device)
+            solver.transpose = True
+            solver.transpose = False
         else :
+            Tsm_sm_matrix = Tsm_sm_matrix.transpose()
             V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, M, Lx, Ly, tol, max_iter, device=solver.device)
         # solver.solver_type_V = 'iter'
 
