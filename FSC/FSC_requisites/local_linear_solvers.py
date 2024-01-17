@@ -847,6 +847,7 @@ def build_Tsm_sm_sparse_3(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_
         
     return Tsm_sm_sp
 
+# @profile
 def build_Tsm_sm_sparse_4(M,Lx,Ly,Lx0,Ly0,find_range,p_a_mu_m_xy,act_hdl,source_as_zero,solver,verbose=0):
     """ Build the sparse matrix of the transition probabilities. 
         Version 4, optimized with permanent allocation, general case.
@@ -1040,7 +1041,7 @@ def iterative_solver_sp(T, x, b, gamma, tol, max_iter=100, verbose = False, devi
 
         if (delta.max() < tol2): 
             success = True
-            # print('Converged in {} iterations'.format(i))
+            # print('Scipy Sparse | Converged in {} iterations'.format(i))
             return new_x_sp, success
 
         x_sp = new_x_sp.copy()
@@ -1267,11 +1268,16 @@ def load_petsc():
 
         # Compute the solution using scipy sparce iterative method
         if mpi_rank == 0:
-            Tsm_sm_matrix = Tsm_sm_matrix_sp.copy().tocsr()
+            Tsm_sm_matrix = Tsm_sm_matrix_sp.tocsr()
             rho0_sparse = rho0
             eta_sparse = eta.copy()
-            
-            new_eta, iter_success = iterative_solver_sp(Tsm_sm_matrix, eta_sparse, rho0_sparse, gamma, tol, max_iter=max_iter)
+
+            if solver.transpose:
+                Tsm_sm_matrix_iter = Tsm_sm_matrix.copy().transpose()
+            else:
+                Tsm_sm_matrix_iter = Tsm_sm_matrix.copy()
+
+            new_eta, iter_success = iterative_solver_sp(Tsm_sm_matrix_iter, eta_sparse, rho0_sparse, gamma, tol, max_iter=max_iter)
         else:
             Tsm_sm_matrix = None
             new_eta = None

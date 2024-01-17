@@ -62,12 +62,11 @@ parser.add_argument('--output_dir', type=str,
 # args = parser.parse_args()
 args, unknown_args = parser.parse_known_args()
 input_file = args.input_file
-lib_solve_linear_system = args.lib_solver
 method = args.method
-device = args.device
 
 # ----------------------------------------------------------------------------
 # Select the library to solve the linear system 
+lib_solve_linear_system = args.lib_solver
 # lib_solve_linear_system = 'scipy'
 # lib_solve_linear_system = 'petsc'
 # lib_solve_linear_system = 'cupy'
@@ -79,7 +78,7 @@ mpi_rank = solver.mpi_rank
 mpi_size = solver.mpi_size
 mpi_comm = solver.mpi_comm
 
-solver.device = device
+solver.device = args.device
 
 # ----------------------------------------------------------------------------
 # ----------------------------------------------------------------------------
@@ -131,12 +130,11 @@ def set_parameters_from_file(input_file):
 # @profile
 def optimize(fsc):
 
-        
     # ----------------------------------------------------------------------------
     if mpi_rank == 0:
 
         # Print parameters
-        utils.print_parameters(fsc,method,lib_solve_linear_system,device)
+        utils.print_parameters(fsc,method,lib_solve_linear_system,solver.device)
 
         # Create folder for saving results
         name_folder = utils.create_output_folder_name(fsc, method, lib_solve_linear_system)
@@ -165,10 +163,9 @@ def optimize(fsc):
     else:
         data=None
 
+    # broadcast data to all processes
     if mpi_size > 1:
-        # broadcast data to all processes
         data = mpi_comm.bcast(data, root=0)
-
 
     if mpi_rank == 0:
 
@@ -192,7 +189,7 @@ def optimize(fsc):
             print(fsc.optim.folder_restart)
             # Load previous policy from file
             folder_restart = fsc.optim.folder_restart
-            # Loadthe theta parameters to optimize
+            # Load theta parameters to optimize
             th = np.loadtxt(folder_restart + '/file_theta.out')
             th = th.reshape(fsc.agent.O, fsc.agent.M, fsc.agent.A * fsc.agent.M)
             # Load eta and Q
@@ -275,6 +272,7 @@ def optimize(fsc):
         print('-'*77)
         print('Starting optimization')
         print('-'*77)
+        
     verbose_eta = True
     time_opt = time.time()
     # Arrays to save the computation time
@@ -311,6 +309,8 @@ def optimize(fsc):
         init_direct = 0 # no direct method
 
     convergence = 0
+    # ----------------------------------------------------------------------------
+    # Start for loop optimization
     for t in range(fsc.optim.Ntot):
 
         # Timer

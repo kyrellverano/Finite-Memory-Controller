@@ -2,7 +2,7 @@
  "A": 6, "actions_move": [[0, -1], [0, 1], [1, 0], [-1, 0], [1, -1], [1, 1]], "actions_name": ["left", "right", "up", "down", "u-l", "u-r"], 
  "lr_th": "auto", "lr_val": [0.1, 0.01, 0.001], "lr_time_frac": [0.0, 0.1, 1.0], 
  "gamma": 0.9995, "cost_move": 0.0005, "reward_find": 0.0, 
- "Lx": 40, "Ly": 70, "Lx0": 20.0, "Ly0": 50.0, 
+ "Lx": 50, "Ly": 90, "Lx0": 25.0, "Ly0": 70.0, 
  "find_range": 1.1, "sigma": 4, 
  "experimental": true, 
  "coarse": 0, "dth": 5, "symmetry": 1, "replica": 3, 

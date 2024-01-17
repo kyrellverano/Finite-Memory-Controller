@@ -1469,7 +1469,6 @@ def linear_solve_Q(agent, env, optim, Tsm_sm_matrix_sp, V, reward, source_as_zer
             solver.transpose = True
             # The transpose of Tsm_sm_matrix is doing by PETSc
             V = solver.function_solver_direct(Tsm_sm_matrix, V, reward, gamma, action_size, M, Lx, Ly, tol, max_iter,solver.ksp_type, solver.pc_type, solver, device=solver.device)
-            solver.transpose = True
             solver.transpose = False
         else :
             Tsm_sm_matrix = Tsm_sm_matrix.transpose()

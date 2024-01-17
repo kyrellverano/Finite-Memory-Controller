@@ -15,17 +15,37 @@ conda install -c jmcmurray os
 conda install -c jmcmurray json
 conda install -c jmcmurray matplotlib
 ``` 
-This code have the possibility to use PETSc for parallelization.
-For use PETSc, you need to install it first. You can follow the instructions here: [petsc4py](https://petsc.org/release/petsc4py/install.html)
+### PETSc installation
+This code have the possibility to use PETSc for parallelization (tested with PETSc 3.18.1).
+For use PETSc on python, you need to install the module *petsc4py*.
+You can follow the instructions here: [petsc4py](https://petsc.org/release/petsc4py/install.html)
+
+If your system has MPI installed, you can install *mpi4py*
+```
+conda install -c conda-forge mpi4py
+```
+
+If your system has PETSc installed, then you can link it to *petsc4py*.
+First, you need to set the environment variable `PETSC_DIR` to the directory where PETSc is installed.
+After you need the version of PETSc that you have installed.
+And then you can install *petsc4py* with the following command:
+```
+export PETSC_DIR=/path/to/petsc
+pip install --user petsc4py==[version of PETSc]
+```
+
+**Tip:** If you will use HPC infrastructure, you can load the module of PETSc and the environment variable `PETSC_DIR` will be set automatically. Then you can install *petsc4py*
+
+If you don't have PETSc installed, you can install it with the following command:
 We recommend to use the pip installation. 
 ```
 pip install --user mpi4py
-export PETSC_CONFIGURE_OPTIONS=' --with-cuda=0 --with-debugging=0 --download-superlu --download-superlu_dist --download-parmetis --download-metis --download-ptscotch COPTFLAGS="-O3 " CXXOPTFLAGS="-O3 " FOPTFLAGS="-O3 "
+export PETSC_CONFIGURE_OPTIONS='--with-cuda=0 --with-debugging=0 --download-superlu --download-superlu_dist --download-parmetis --download-metis --download-ptscotch COPTFLAGS="-O3 " CXXOPTFLAGS="-O3 " FOPTFLAGS="-O3 "
 pip install --user petsc # this will take a while
 pip install --user petsc4py
 ```
-
-Then, go to the directory where your codes are: `cd FSC_NB` or `cd FSC_PS` then compile the fortran script by running the following:
+### Fortran module
+Then, go to the directory where your codes are: `cd FSC_requisites` then compile the fortran script by running the following:
 ```
 f2py -c fast_sparce_multiplications_2D.f90 -m fast_sparce_multiplications_2D
 ```
