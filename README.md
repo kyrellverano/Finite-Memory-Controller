@@ -15,7 +15,37 @@ conda install -c jmcmurray os
 conda install -c jmcmurray json
 conda install -c jmcmurray matplotlib
 ``` 
-Then, go to the directory where your codes are: `cd FSC_NB` or `cd FSC_PY` then compile the fortran script by running the following:
+### PETSc installation
+This code have the possibility to use PETSc for parallelization (tested with PETSc 3.18.1).
+For use PETSc on python, you need to install the module *petsc4py*.
+You can follow the instructions here: [petsc4py](https://petsc.org/release/petsc4py/install.html)
+
+If your system has MPI installed, you can install *mpi4py*
+```
+conda install -c conda-forge mpi4py
+```
+
+If your system has PETSc installed, then you can link it to *petsc4py*.
+First, you need to set the environment variable `PETSC_DIR` to the directory where PETSc is installed.
+After you need the version of PETSc that you have installed.
+And then you can install *petsc4py* with the following command:
+```
+export PETSC_DIR=/path/to/petsc
+pip install --user petsc4py==[version of PETSc]
+```
+
+**Tip:** If you will use HPC infrastructure, you can load the module of PETSc and the environment variable `PETSC_DIR` will be set automatically. Then you can install *petsc4py*
+
+If you don't have PETSc installed, you can install it with the following command:
+We recommend to use the pip installation. 
+```
+pip install --user mpi4py
+export PETSC_CONFIGURE_OPTIONS='--with-cuda=0 --with-debugging=0 --download-superlu --download-superlu_dist --download-parmetis --download-metis --download-ptscotch COPTFLAGS="-O3 " CXXOPTFLAGS="-O3 " FOPTFLAGS="-O3 "
+pip install --user petsc # this will take a while
+pip install --user petsc4py
+```
+### Fortran module
+Then, go to the directory where your codes are: `cd FSC_requisites` then compile the fortran script by running the following:
 ```
 f2py -c fast_sparce_multiplications_2D.f90 -m fast_sparce_multiplications_2D
 ```
@@ -29,20 +59,26 @@ There are two things that you can do with the given code/notebooks:
 ## Pre-saved policies
 There are two types of policies that are shown here: the best policy we have solved so far and a suboptimal policy that exhibits a different set of behaviors. The following are the variables you can change and the possible values: 
 1. coarse = 0 , 1 [0 for non-coarse, 1 for coarse]
-2. memories = 1, 2, 3, 4 
-3. threshold = 5, 12, 15 
-4. sub = 0 , 1 [0 gives the best and 1 gives the suboptimal] 
+2. threshold = 5, 12, 15 
+3. sub = 0 , 1 [0 gives the best and 1 gives the suboptimal] 
 
 The other variables are in the input.dat.
 
 ## Notebooks
-The notebooks are prepared for more convenient view of the outputs. There are two notebooks - depending on the task that is desired. 
+The notebooks are prepared for more convenient view of the outputs.
 
 ## Python Scripts
 Change the input variables in the file input.dat then run the python file that corresponds to the task you want:
-1. python3 optimize.py input.dat
-2. python3 visualize.py input.dat
+1. python3 optimize.py --input_file input.dat
+2. python3 visualize.py --dir /path/to/policies
 
+## Optimization options
+To see the options for optimization, run the following:
+```
+python3 optimize.py --help
+```
+
+## Visualization options
 The outputs (plots, .dat files, or videos) can be seen in the outputs folder.
 
 ## Evaluation on Dynamic Plumes and Data Processing 

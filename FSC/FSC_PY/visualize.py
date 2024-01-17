@@ -1,302 +1,162 @@
-import numpy as np
+# Description:
+# Visualization of the optimization of the FSC model for the plume tracking task
+# ----------------------------------------------------------------------------
+# Author: kyrellverano
+# LastUpdate: 2019-09-16
+#
+# Reference:
+#
+# ----------------------------------------------------------------------------
+# Contributors: LuisAlfredoNu <luis.alfredo.nu@gmail.com>
+# LastUpdate: 2023-12-12
+# ----------------------------------------------------------------------------
+#
+# Usage: python optimize.py -h
+#
+# ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+
+
 import sys
 import json
 import os
-import utils
+
+import numpy as np
+import itertools as it
 from scipy.special import softmax as softmax
-from statistics import median
-import matplotlib.pyplot as plt
+
+import time as time
+
+# Path to the comm folder
+file_path = os.path.realpath(__file__)
+file_path = os.path.dirname(os.path.dirname(file_path))
+file_path += '/FSC_requisites/'
+sys.path.append(file_path)
+import utils as utils
+import fsc_visualize_tools as fsc_visual
 
 np.set_printoptions(precision=5)
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=1000)
 
+# Fix the seed for reproducibility
+# np.random.seed(33+33)
+
+import argparse
+parser = argparse.ArgumentParser(description='Visualization of Finite State Controller for plume tracking')
+parser.add_argument('--dir', type=str,
+                    required=True,
+                    help='Directory with optimization results')
+
+args = parser.parse_args()
+directory = args.dir
+# ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
     
+    # ----------------------------------------------------------------------------
     # parameters for system are loaded from file 
-    print(sys.argv)
-    params = json.load(open(sys.argv[1]))
+    params = json.load(open(directory+'/input.dat', 'r'))
+    print(params)
 
-    coarse=params['coarse']   
-    dth=params['thresh']
-    M = params["M"]         # size of memory m = {0,1}
-    A = params["A"]         # action available in list: {left, right, up, down} 
-    
-    
-    O = params["O"]         # distinct observations for actions [0, 1, 2, .., O-1]
-    max_obs = params["max_obs"]  # distinct observations for rewards
-    
-    symmetry=params['symmetry']
-    replica = params["replica"]
-    
+    fsc = utils.parameters()
+    fsc.set_parameters(params)
+    # Print parameters
+    utils.print_parameters(fsc,'visualize','fsc','cpu')
 
-    Lx = params["Lx"]
-    Ly = params["Ly"]
-    Lx0 = (Lx/2)-0.5
-    Ly0 = params["Ly0"]
-    
-    if coarse==1 and (Lx % 2) == 0:
-        sys.exit('Error in value for Lx. In COARSE set-up, Lx should be an odd number')
+    # Load the solver
+    solver = utils.solver_opt()
+    solver.set_lib_solver('scipy')
 
-    # Tolerance default
-    tol_eta = 0.000001
-    tol_Q = 0.000001
-    lr_th = 0.001
-    tol_conv = 0.0000000001
+    # ----------------------------------------------------------------------------
+    # ----------------------------------------------------------------------------
+    # Load experimental data
+    if fsc.plume.symmetry == 0:
+        data=np.loadtxt('../FSC_requisites/data/exp_plume_threshold{}.dat'.format(fsc.plume.dth))
+    if fsc.plume.symmetry == 1:
+        data=np.loadtxt('../FSC_requisites/data/exp_plume_symmetric_threshold{}.dat'.format(fsc.plume.dth))
+    if fsc.plume.coarse == 1:
+        data=np.loadtxt('../FSC_requisites/data/exp_plume_symmetric_coarse_threshold{}.dat'.format(fsc.plume.dth))
 
-    # Tolerance override
-    if ("tol_eta" in params.keys()):
-        tol_eta = params["tol_eta"]
-    if ("tol_Q" in params.keys()):
-        tol_Q = params["tol_Q"]
-    if ("lr_th" in params.keys()):
-        lr_th = params["lr_th"]
-    if ("tol_conv" in params.keys()):
-        tol_conv = params["tol_conv"]
-
-    find_range = params["find_range"]
-    gamma = params["gamma"]
-    V = 100
-    if ("V" in params.keys()):
-        V = params["V"]
-
-    print('Lx :{}, Ly :{}'.format(Lx, Ly))
-    print('Lx0:{}, Ly0:{}'.format(Lx0, Ly0))
-    print('M:{}, th:{}, replica:{}'.format(M, dth,replica))
-     
-    # combined action space = M * A, lM0, lM1, ... rM0, rM1, ..., sM0, sM1, ...
-    a_size = A * M
-    L = Lx*Ly
-
-    # cost move
-    cost_move = 1-gamma
-    if ("cost_move" in params.keys()):
-        beta = params["cost_move"]
-    reward_find = params["reward_find"]
-    
-    beta = 5
-    if ("beta" in params.keys()):
-        beta = params["beta"]
-
-    #Maxtime in optimization
-    Ntot = params["Ntot"]
-    #Printing time interval
-    Nprint = params["Nprint"]
-
-
-    #data
-    if symmetry == 0:
-        data=np.loadtxt('data/exp_plume_threshold{}.dat'.format(dth))
-    if symmetry == 1:
-        data=np.loadtxt('data/exp_plume_symmetric_threshold{}.dat'.format(dth))
-    if coarse == 1:
-        data=np.loadtxt('data/exp_plume_symmetric_coarse_threshold{}.dat'.format(dth))
-
-    #++++++++
-    #INITIALIZATIONS
-    
-    eta = np.zeros(L*M)
-    PObs_lim, RR, PObs = utils.create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, 
-                                        reward_find, M, beta, max_obs, O, A, V, data=data)
-    PObs_lim = np.abs(PObs_lim)
-
-    # Initial density is only at y=0, proportional to signal probability
-    rho0 = np.zeros(M*Lx*Ly)
-    #rho0[:Lx*Ly0//2] = (1-PObs_lim[0,:Lx*Ly0//2])/np.sum((1-PObs_lim[0,:Lx*Ly0//2]))
-    rho0[:Lx] = (1-PObs_lim[0,:Lx])/np.sum((1-PObs_lim[0,:Lx]))
-
-    
-    if ("ev" in params.keys()):
-        rho0[:Lx*Ly0//2] = (1-PObs_lim[0,:Lx*Ly0//2])/np.sum((1-PObs_lim[0,:Lx*Ly0//2]))
-    else:
-        rho0[:Lx] = (1-PObs_lim[0,:Lx])/np.sum((1-PObs_lim[0,:Lx]))
-    
-    print('tol_conv:{}, tolQ:{}, toleta:{}'.format(tol_conv,tol_Q,tol_eta)) 
-        
-    name_folder = 'outputs/Visualize_A{}M{}b{}g{}FR{}LR{}sym{}th{}rep{}LX{}LY{}co{}'.format(A,M,beta,gamma,find_range,lr_th,symmetry,dth,replica,Lx,Ly,coarse)
-    os.makedirs(name_folder, exist_ok=True)
-    #os.system("cp {} {}".format('./'+sys.argv[1], './'+name_folder))
-    
-    
-    # Policy Initialization with bias
-    new = params["new_policy"]
-    if ("sub" in params.keys()):
-        sub = params["sub"] 
-
-    #new=0 means the saved optimal policy we provided
-    #new=1 means the policy you saved as a result
-    #sub= 0 : best, 1: second best 
-    if new==0:
-    #load optimized policy
-        name_folder='saved_policies/A{}M{}TH{}sub{}co{}'.format(A,M,dth,sub,coarse)
-        th = np.loadtxt(name_folder + '/file_theta.out')
-        th = th.reshape(O, M, a_size)
-        Q = np.loadtxt(name_folder + '/file_Q.out')
-        eta = np.loadtxt(name_folder + '/file_eta.out')
-        save_folder='outputs/A{}M{}TH{}sub{}co{}'.format(A,M,dth,sub,coarse)
-    elif new==1:
-    #load your policy
-    #insert after output/ inside the '' the name of the folder 
-        name_folder='output/'
-        th = np.loadtxt(name_folder + '/file_theta.out')
-        th = th.reshape(O, M, a_size)
-        Q = np.loadtxt(name_folder + '/file_Q.out')
-        eta = np.loadtxt(name_folder + '/file_eta.out')
-        pi = softmax(th, axis=2)
-        save_folder=name_folder
-
-    os.makedirs(save_folder, exist_ok=True)
-    #INITIALIZATIONS
-    PObs_lim, RR, PObs = utils.create_PObs_RR(Lx, Ly, Lx0, Ly0, find_range, cost_move, reward_find, M, beta, max_obs, O, A, V, data)
-    PObs_lim = np.abs(PObs_lim)
-
-    #distribution relative to the PObs_lim
-    rho0 = np.zeros(M*Lx*Ly)
-    rho0[:Lx] = (1-PObs_lim[0,:Lx])/np.sum((1-PObs_lim[0,:Lx]))
-
-    # ++++++++++++++++++
+    # Load optimization data
+    th = np.loadtxt(directory + '/file_theta.out')
+    th = th.reshape(fsc.agent.O, fsc.agent.M, fsc.agent.A * fsc.agent.M)
     pi = softmax(th, axis=2)
-    print('the average value of the policy is:')
-    print(utils.get_value(Q, pi, PObs_lim, L, rho0))
 
-    #ILLUSTRATE THE POLICY
-    # for y=0
-    p0=pi.reshape(O,M,M,A)[0].reshape(M,M*A)
-    actions = ["m1-L", "m1-R", "m1-U", "m1-D","m2-L", "m2-R", "m2-U", "m2-D","m3-L", 
-            "m3-R", "m3-U", "m3-D","m4-L", "m4-R", "m4-U", "m4-D","m5-L", "m5-R", "m5-U", "m5-D"]
-    memory = ["Mem1", "Mem2", "Mem3",
-            "Mem4", "Mem5"]
+    Q = np.loadtxt(directory + '/file_Q.out')
 
-    fig, ax = plt.subplots()
-    im = ax.imshow(p0,cmap='summer')
-    # Rotate the tick labels and set their alignment.
+    eta = np.loadtxt(directory + '/file_eta.out')
+    # ----------------------------------------------------------------------------
+    # Initialize the environment
+    # Create array where the source is located
+    yxs = it.product(np.arange(fsc.env.Ly), np.arange(fsc.env.Lx))
+    find_range2 = fsc.env.find_range**2
+    yx_founds = it.filterfalse(lambda x: 
+                                (x[0]-fsc.env.Ly0)**2 + (x[1]-fsc.env.Lx0)**2 > find_range2, 
+                                yxs)
+    source_as_zero = np.array([i for i in yx_founds])
 
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-            rotation_mode="anchor")
-    # Show all ticks and label them with the respective list entries
-    ax.set_xticks(np.arange(len(actions[:M*A])), labels=actions[:M*A])
-    ax.set_yticks(np.arange(len(memory[:M])), labels=memory[:M])
+    # Create Observation and Reward matrices
+    PObs_lim, RR, PObs, RR_np = utils.create_PObs_RR(fsc.agent, fsc.env, fsc.plume, data=data, source_as_zero=source_as_zero)
 
-    p00=np.round(p0,2)
-    for i in range(len(memory[:M])):
-        for j in range(len(actions[:M*A])):
-            if p00[i,j]==0.0:
-                text = ax.text(j, i, 0,
-                        ha="center", va="center", color="black") 
-            else:
-                text = ax.text(j, i, p00[i, j],
-                        ha="center", va="center", color="black")
-                
-    plt.title('policy p(m*,a|m,y=0) when no observation')
-    plt.ylabel('initial memory(m)',fontsize=10)
-    plt.xlabel('memory update and action(m*,a)',fontsize=10)
-    fig.set_size_inches(10, 6)
-    plt.show()
-    plt.savefig(save_folder+'/policy_y0.png')
+    # Create the initial positions of the agent
+    rho0 = np.zeros(fsc.env.L * fsc.agent.M)
+    rho0[:fsc.env.Lx] = (1-PObs_lim[0,:fsc.env.Lx])/np.sum((1-PObs_lim[0,:fsc.env.Lx]))
 
+    utils.get_max_value(fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.agent.M, fsc.env.find_range, rho0, fsc.agent.gamma)
+    # ----------------------------------------------------------------------------
 
-    #for y=1
-    p1=pi.reshape(O,M,M,A)[1].reshape(M,M*A)
-    actions = ["m1-L", "m1-R", "m1-U", "m1-D","m2-L", "m2-R", "m2-U", "m2-D","m3-L", 
-            "m3-R", "m3-U", "m3-D","m4-L", "m4-R", "m4-U", "m4-D","m5-L", "m5-R", "m5-U", "m5-D"]
-    memory = ["Mem1", "Mem2", "Mem3",
-            "Mem4", "Mem5"]
+    value =  utils.get_value(Q, pi, PObs_lim, fsc.env.L, rho0)
+    print('Value of the policy: {}'.format(value))
+    qlty_value = np.log(1+value)/np.log(fsc.agent.gamma)
+    print('Quality of the policy: {}'.format(qlty_value))
+    print("-"*50)
 
-    fig, ax = plt.subplots()
-    im = ax.imshow(p1,cmap='summer')
-    # Rotate the tick labels and set their alignment.
+    # Plot the plume 
+    print('Plotting plume...')
+    fsc_visual.plot_plume(data, fsc, show=False, save=True, save_path=directory)
+    # Plot the initial positions of the agent
+    print('Plotting initial positions of the agent...')
+    fsc_visual.plot_rho(rho0, fsc, show=False, save=True, save_path=directory)
+    # Plot the probability of the observations
+    print('Plotting probability of the observations...')
+    fsc_visual.plot_PObs_lim(PObs_lim, fsc, show=False, save=True, save_path=directory)
+    # Plot the reward
+    print('Plotting reward...')
+    fsc_visual.plot_reward(RR_np, fsc, show=False, save=True, save_path=directory)
 
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-            rotation_mode="anchor")
-    # Show all ticks and label them with the respective list entries
-    ax.set_xticks(np.arange(len(actions[:M*A])), labels=actions[:M*A])
-    ax.set_yticks(np.arange(len(memory[:M])), labels=memory[:M])
+    # Plot eta and Q
+    print('Plotting eta and Q...')
+    fsc_visual.plot_eta_Q(eta, Q, fsc, show=False, save=True, save_path=directory)
 
-    p11=np.round(p1,2)
-    for i in range(len(memory[:M])):
-        for j in range(len(actions[:M*A])):
-            if p11[i,j]==0.0:
-                text = ax.text(j, i, '0',
-                        ha="center", va="center", color="black") 
-            else:
-                text = ax.text(j, i, p11[i, j],
-                        ha="center", va="center", color="black")
-            
-    plt.title('policy p(m*,a|m,y=1) when there is observation')
-    plt.ylabel('initial memory(m)',fontsize=10)
-    plt.xlabel('memory update and action(m*,a)',fontsize=10)
-    fig.set_size_inches(10, 6)
-    plt.show()
-    plt.savefig(save_folder+'/policy_y1.png')
-
-
-    ##TRAJECTORY sample
-    no_samples=1
-    trj, ret, _ = utils.single_traj_obs(softmax(th, axis=2), Lx, Ly, Lx0, Ly0, find_range, gamma, PObs_lim, rho0, A)
-
-    scatter_x = trj[1:,1]
-    scatter_y = trj[1:,2]
-    group = trj[1:,3]
-    cdict = {2: 'orange', 0: 'mediumseagreen', 1: 'crimson', 3:'blue'}
-
-    fig, ax = plt.subplots()
-    ix = np.where(trj[1:,4] > 0)
-    ax.scatter(scatter_x[ix], scatter_y[ix], c = 'black', s = 80)
-    ix = np.where(group == 0.0)
-    ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[0], label = 'Memory 0', s = 8)
-    ix = np.where(group == 1.0)
-    ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[1], label = 'Memory 1', s = 8)
-    ix = np.where(group == 2.0)
-    ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[2], label = 'Memory 2', s = 8)
-    ix = np.where(group == 3.0)
-    ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[3], label = 'Memory 3', s = 8)
-    #ax.legend()
-    ax.imshow((1-PObs_lim[0,:]-5).reshape(M,Ly,Lx)[0,:],cmap='Greys')
-    fig.set_size_inches(10, 6)
-    crange=plt.Circle((Lx0,Ly0),find_range,fill=False)
-    ax.set_aspect(1)
-    ax.add_artist(crange)
-    plt.title('{} threshold: {} memory states'.format(dth, M))
-    plt.xlim((-1,92))
-    plt.ylim((-1,133))
-    plt.xlabel('x-position',fontsize=16)
-    plt.ylabel('y-position',fontsize=16)
-    plt.show()
-    plt.savefig(save_folder+'/trajectory.png')
+    # Plot policy
+    print('Plotting policy...')
+    obs_status = ['no signal','signal','differs from signal']
+    fsc_visual.plot_policy(pi, fsc, obs_status, show=False, save=True, save_path=directory)
     
-    if ("no_samples" in params.keys()):
-        no_samples = params["no_samples"]
-    if no_samples>1:
-        for i in range(no_samples):
-            trj, ret, _ = utils.single_traj_obs(softmax(th, axis=2), Lx, Ly, Lx0, Ly0, find_range, gamma, PObs_lim, rho0, A)
-            scatter_x = trj[1:,1]
-            scatter_y = trj[1:,2]
-            group = trj[1:,3]
-            cdict = {2: 'orange', 0: 'mediumseagreen', 1: 'crimson', 3:'blue'}
+    print('Computing trajectory...')
+    max_trajectory_length = int(qlty_value)
 
-            fig, ax = plt.subplots()
-            ix = np.where(trj[1:,4] > 0)
-            ax.scatter(scatter_x[ix], scatter_y[ix], c = 'black', s = 80)
-            ix = np.where(group == 0.0)
-            ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[0], label = 'Memory 0', s = 8)
-            ix = np.where(group == 1.0)
-            ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[1], label = 'Memory 1', s = 8)
-            ix = np.where(group == 2.0)
-            ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[2], label = 'Memory 2', s = 8)
-            ix = np.where(group == 3.0)
-            ax.scatter(scatter_x[ix], scatter_y[ix], c = cdict[3], label = 'Memory 3', s = 8)
-            #ax.legend()
-            ax.imshow((1-PObs_lim[0,:]-5).reshape(M,Ly,Lx)[0,:],cmap='Greys')
-            fig.set_size_inches(10, 6)
-            crange=plt.Circle((Lx0,Ly0),find_range,fill=False)
-            ax.set_aspect(1)
-            ax.add_artist(crange)
-            plt.title('{} threshold: {} memory states'.format(dth, M))
-            plt.xlim((-1,92))
-            plt.ylim((-1,133))
-            plt.xlabel('x-position',fontsize=16)
-            plt.ylabel('y-position',fontsize=16)
-            plt.savefig(name_folder+'/trajectory_{}.png'.format(i))
-            
-        
+    trj, result, trj_steps = utils.single_traj_obs(pi, fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.env.find_range, max_trajectory_length, PObs_lim, rho0, fsc.agent.act_hdl,progress_bar=True)
+
+    print('Trajectory length: {} | Success: {}'.format(trj_steps, result))
+
+    # Plot the trajectory of the agent
+    print('Plotting trajectory...')
+    fsc_visual.plot_trajectory(trj, result, PObs_lim, fsc, show=False, save=True, save_path=directory)
+
+    # Validation of the policy
+    print('Validation of the policy...')
+    time_start = time.time()
+    Nep = 1000   #number of trajectories to reproduce
+    maxT = int(qlty_value) * 5
+
+    print('Number episodes: {}, max Time steps: {}'.format(Nep, maxT))
+
+    av_ret, Total_trj = utils.compute_trajectory_future(pi, fsc.env.Lx, fsc.env.Ly, fsc.env.Lx0, fsc.env.Ly0, fsc.env.find_range, maxT, PObs_lim, rho0, fsc.agent.act_hdl, Nep=Nep)
+
+    time_end = time.time()
+    print('Success Rate: {:.3f}%'.format(100*av_ret / Nep))
+    print('Time elapsed: {:.3f} s'.format(time_end - time_start))
